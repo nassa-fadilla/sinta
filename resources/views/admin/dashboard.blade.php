@@ -51,7 +51,7 @@
                     d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0h6" />
                 </svg>
               </span>
-              <span>Dashboard Guru</span>
+              <span>Dashboard Admin</span>
             </h1>
 
             <p class="mt-2 text-sm text-slate-500">
@@ -319,7 +319,7 @@
           class="inline-flex w-fit max-w-full flex-wrap items-center gap-1 rounded-full border border-slate-200 bg-white-50 p-1 shadow-sm">
           @foreach($hariTabs as $hari)
                 <a href="{{ route('admin.dashboard', ['hari' => $hari]) }}" class="rounded-full px-3 py-1.5 text-xs font-medium transition whitespace-nowrap
-                                                                        {{ $hariAktif === $hari
+                                                                                {{ $hariAktif === $hari
             ? 'bg-blue-600 text-white shadow-sm'
             : 'text-slate-600 hover:bg-blue-50 hover:text-blue-700' }}">
                   {{ $hari }}
@@ -338,7 +338,7 @@
         <div class="mt-3 space-y-2 md:hidden">
           @foreach($jadwalCollection as $j)
             <div class="rounded-3xl px-4 py-3 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:shadow-md
-                                                        {{ !empty($j->is_active_now)
+                                                              {{ !empty($j->is_active_now)
             ? 'border border-blue-200 bg-gradient-to-br from-blue-50 via-white to-sky-50 ring-1 ring-blue-100'
             : (!empty($j->is_upcoming)
               ? 'border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-yellow-50'
@@ -395,7 +395,7 @@
             <tbody class="divide-y divide-slate-100">
               @foreach($jadwalCollection as $j)
                     <tr class="transition duration-300
-                                                                                        {{ !empty($j->is_active_now)
+                                                                                                  {{ !empty($j->is_active_now)
                 ? 'bg-blue-50/80 hover:bg-blue-100/70'
                 : (!empty($j->is_upcoming)
                   ? 'bg-amber-50/60 hover:bg-amber-100/60'
