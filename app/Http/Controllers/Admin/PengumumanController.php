@@ -32,6 +32,16 @@ class PengumumanController extends Controller
         $jenis = trim((string) $request->query('jenis', ''));
         $status = trim((string) $request->query('status', ''));
 
+        /*
+        |--------------------------------------------------------------------------
+        | Pagination
+        |--------------------------------------------------------------------------
+        | Jumlah data per halaman dibuat tetap 10 agar tampilan daftar pengumuman
+        | lebih rapi dan konsisten. Query string tetap dipertahankan agar filter,
+        | pencarian, jenis, dan status tidak hilang saat berpindah halaman.
+        */
+        $perPage = 10;
+
         $items = Pengumuman::with(['author', 'approver'])
             ->when($q !== '', function ($query) use ($q) {
                 $query->where('judul', 'like', "%{$q}%");
@@ -43,7 +53,7 @@ class PengumumanController extends Controller
                 $query->where('status', $status);
             })
             ->orderByDesc('id')
-            ->paginate(12)
+            ->paginate($perPage)
             ->withQueryString();
 
         $tahunAjaranMap = $this->getTahunAjaranMapFromItems($items->getCollection());
@@ -51,6 +61,7 @@ class PengumumanController extends Controller
         return view('admin.pengumuman.index', [
             'items' => $items,
             'tahunAjaranMap' => $tahunAjaranMap,
+            'perPage' => $perPage,
         ]);
     }
 
