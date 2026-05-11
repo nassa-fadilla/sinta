@@ -234,6 +234,8 @@ class ChatController extends Controller
         $wa_target = null;
 
         if ($detail) {
+            $photo = $this->normalizeSiswaPhotoFields($detail);
+
             $activeThread->student_name = $detail['nama'] ?? null;
             $activeThread->nama_ayah = $detail['nama_ayah'] ?? null;
             $activeThread->nama_ibu = $detail['nama_ibu'] ?? null;
@@ -241,6 +243,15 @@ class ChatController extends Controller
                 ?? data_get($detail, 'rombel.nama_rombel')
                 ?? data_get($detail, 'rombel.nama')
                 ?? null;
+
+            $activeThread->foto = $photo['foto'];
+            $activeThread->foto_url = $photo['foto_url'];
+            $activeThread->photo_url = $photo['photo_url'];
+            $activeThread->avatar = $photo['avatar'];
+            $activeThread->foto_siswa = $photo['foto_siswa'];
+            $activeThread->foto_src = $photo['foto_src'];
+            $activeThread->preview_foto = $photo['preview_foto'];
+            $activeThread->student_photo_url = $photo['foto_src'];
 
             $parentName = $detail['nama_ayah'] ?? $detail['nama_ibu'] ?? $activeThread->parent_name;
             $activeThread->parent_name = $parentName ?: $activeThread->parent_name;
@@ -252,6 +263,14 @@ class ChatController extends Controller
         } else {
             $activeThread->student_name = null;
             $activeThread->rombel_nama = null;
+            $activeThread->foto = null;
+            $activeThread->foto_url = null;
+            $activeThread->photo_url = null;
+            $activeThread->avatar = null;
+            $activeThread->foto_siswa = null;
+            $activeThread->foto_src = null;
+            $activeThread->preview_foto = null;
+            $activeThread->student_photo_url = null;
         }
 
         $messages = DB::table('chat_messages')
@@ -845,6 +864,8 @@ class ChatController extends Controller
                     continue;
                 }
 
+                $photo = $this->normalizeSiswaPhotoFields(array_merge($anggota, $detail));
+
                 $row = (object) [
                     'user_ortu_id' => (int) $userOrtu->id,
                     'display_name' => $userOrtu->name,
@@ -861,6 +882,15 @@ class ChatController extends Controller
                     'no_hp_ayah' => $detail['no_hp_ayah'] ?? null,
                     'nama_ibu' => $detail['nama_ibu'] ?? null,
                     'no_hp_ibu' => $detail['no_hp_ibu'] ?? null,
+
+                    'foto' => $photo['foto'],
+                    'foto_url' => $photo['foto_url'],
+                    'photo_url' => $photo['photo_url'],
+                    'avatar' => $photo['avatar'],
+                    'foto_siswa' => $photo['foto_siswa'],
+                    'foto_src' => $photo['foto_src'],
+                    'preview_foto' => $photo['preview_foto'],
+                    'student_photo_url' => $photo['foto_src'],
                 ];
 
                 $row->wa_target = $this->pickPhone($row->no_hp_ayah, $row->no_hp_ibu);
@@ -935,6 +965,15 @@ class ChatController extends Controller
             $row->nama_ibu = $p->nama_ibu ?? null;
             $row->no_hp_ibu = $p->no_hp_ibu ?? null;
 
+            $row->foto = $p->foto ?? null;
+            $row->foto_url = $p->foto_url ?? null;
+            $row->photo_url = $p->photo_url ?? null;
+            $row->avatar = $p->avatar ?? null;
+            $row->foto_siswa = $p->foto_siswa ?? null;
+            $row->foto_src = $p->foto_src ?? null;
+            $row->preview_foto = $p->preview_foto ?? null;
+            $row->student_photo_url = $p->student_photo_url ?? ($p->foto_src ?? null);
+
             $parentName = $p->nama_ayah ?? $p->nama_ibu ?? $row->user_parent_name;
             $row->parent_name = $parentName ?: 'Orang Tua';
 
@@ -979,6 +1018,8 @@ class ChatController extends Controller
             $detail = $this->fetchSiswaDetailByNis((string) $activeThread->nis);
 
             if ($detail) {
+                $photo = $this->normalizeSiswaPhotoFields($detail);
+
                 $thread->siswa_id = $detail['id'] ?? null;
                 $thread->student_name = $detail['nama'] ?? null;
                 $thread->rombel_nama = data_get($detail, 'rombel_aktif.nama_rombel')
@@ -990,6 +1031,15 @@ class ChatController extends Controller
                 $thread->nama_ibu = $detail['nama_ibu'] ?? null;
                 $thread->no_hp_ibu = $detail['no_hp_ibu'] ?? null;
                 $thread->parent_name = $detail['nama_ayah'] ?? $detail['nama_ibu'] ?? ($activeThread->parent_name ?? 'Orang Tua');
+
+                $thread->foto = $photo['foto'];
+                $thread->foto_url = $photo['foto_url'];
+                $thread->photo_url = $photo['photo_url'];
+                $thread->avatar = $photo['avatar'];
+                $thread->foto_siswa = $photo['foto_siswa'];
+                $thread->foto_src = $photo['foto_src'];
+                $thread->preview_foto = $photo['preview_foto'];
+                $thread->student_photo_url = $photo['foto_src'];
             } else {
                 $thread->siswa_id = null;
                 $thread->student_name = null;
@@ -999,10 +1049,164 @@ class ChatController extends Controller
                 $thread->nama_ibu = null;
                 $thread->no_hp_ibu = null;
                 $thread->parent_name = $activeThread->parent_name ?? 'Orang Tua';
+
+                $thread->foto = null;
+                $thread->foto_url = null;
+                $thread->photo_url = null;
+                $thread->avatar = null;
+                $thread->foto_siswa = null;
+                $thread->foto_src = null;
+                $thread->preview_foto = null;
+                $thread->student_photo_url = null;
             }
         }
 
         return $thread;
+    }
+
+    /* =========================================================
+     |  HELPER: FOTO SISWA UNTUK CHAT
+     * =======================================================*/
+    private function normalizeSiswaPhotoFields(array $row): array
+    {
+        $foto = $this->pickString(
+            $row['foto'] ?? null,
+            data_get($row, 'siswa.foto')
+        );
+
+        $fotoUrl = $this->pickString(
+            $row['foto_url'] ?? null,
+            data_get($row, 'siswa.foto_url')
+        );
+
+        $photoUrl = $this->pickString(
+            $row['photo_url'] ?? null,
+            data_get($row, 'siswa.photo_url')
+        );
+
+        $avatar = $this->pickString(
+            $row['avatar'] ?? null,
+            data_get($row, 'siswa.avatar')
+        );
+
+        $fotoSiswa = $this->pickString(
+            $row['foto_siswa'] ?? null,
+            data_get($row, 'siswa.foto_siswa')
+        );
+
+        $fotoSrc = $this->resolveSiswaPhotoUrlFromRow($row);
+
+        return [
+            'foto' => $foto,
+            'foto_url' => $fotoUrl,
+            'photo_url' => $photoUrl,
+            'avatar' => $avatar,
+            'foto_siswa' => $fotoSiswa,
+            'foto_src' => $fotoSrc,
+            'preview_foto' => $fotoSrc,
+        ];
+    }
+
+    private function resolveSiswaPhotoUrlFromRow(array $row): ?string
+    {
+        $foto = $this->pickString(
+            $row['foto_src'] ?? null,
+            $row['preview_foto'] ?? null,
+            $row['foto_url'] ?? null,
+            data_get($row, 'siswa.foto_url'),
+            $row['photo_url'] ?? null,
+            data_get($row, 'siswa.photo_url'),
+            $row['avatar'] ?? null,
+            data_get($row, 'siswa.avatar'),
+            $row['foto'] ?? null,
+            data_get($row, 'siswa.foto'),
+            $row['foto_siswa'] ?? null,
+            data_get($row, 'siswa.foto_siswa'),
+            $row['photo'] ?? null,
+            data_get($row, 'siswa.photo'),
+            $row['gambar'] ?? null,
+            data_get($row, 'siswa.gambar'),
+            $row['image'] ?? null,
+            data_get($row, 'siswa.image')
+        );
+
+        if (!$foto) {
+            return null;
+        }
+
+        $foto = trim((string) $foto);
+
+        if ($foto === '' || $foto === '-') {
+            return null;
+        }
+
+        if (filter_var($foto, FILTER_VALIDATE_URL)) {
+            return $foto;
+        }
+
+        $foto = $this->normalizeRelativePhotoPath($foto);
+
+        if ($foto === '') {
+            return null;
+        }
+
+        $basename = basename($foto);
+
+        $localCandidates = [
+            $foto,
+            'sia/' . $foto,
+            'foto_siswa/' . $basename,
+            'sia/foto_siswa/' . $basename,
+            'storage/' . $foto,
+            'storage/foto_siswa/' . $basename,
+            'storage/sia/foto_siswa/' . $basename,
+        ];
+
+        foreach (array_unique(array_filter($localCandidates)) as $relativePath) {
+            if (is_file(public_path($relativePath))) {
+                return asset($relativePath);
+            }
+        }
+
+        $siaPublicUrl = $this->siaPublicUrl();
+
+        if ($siaPublicUrl === '') {
+            return null;
+        }
+
+        if (Str::startsWith($foto, 'public/storage/')) {
+            $foto = preg_replace('#^public/#', '', $foto);
+            return $siaPublicUrl . '/' . $foto;
+        }
+
+        if (Str::startsWith($foto, 'storage/')) {
+            return $siaPublicUrl . '/' . $foto;
+        }
+
+        if (Str::startsWith($foto, 'foto_siswa/')) {
+            return $siaPublicUrl . '/storage/' . $foto;
+        }
+
+        if (Str::startsWith($foto, ['uploads/', 'siswa/'])) {
+            return $siaPublicUrl . '/' . $foto;
+        }
+
+        return $siaPublicUrl . '/storage/foto_siswa/' . $basename;
+    }
+
+    private function normalizeRelativePhotoPath(string $path): string
+    {
+        $path = trim($path);
+        $path = str_replace('\\', '/', $path);
+        $path = preg_replace('#/+#', '/', $path);
+        $path = ltrim($path, '/');
+
+        return $path;
+    }
+
+    private function siaPublicUrl(): string
+    {
+        return rtrim((string) (config('services.sia.public_url') ?: config('services.sia.base_url')), '/');
     }
 
     /* =========================================================
@@ -1062,6 +1266,21 @@ class ChatController extends Controller
         }
 
         return $d;
+    }
+
+    private function pickString(...$values): ?string
+    {
+        foreach ($values as $value) {
+            if (is_string($value) && trim($value) !== '') {
+                return trim($value);
+            }
+
+            if (is_numeric($value)) {
+                return (string) $value;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -1198,7 +1417,18 @@ class ChatController extends Controller
         $id = $basic['data']['id'] ?? null;
 
         if (!$id) {
-            return $basic['data'];
+            $basicData = $basic['data'];
+            $photo = $this->normalizeSiswaPhotoFields($basicData);
+
+            return array_merge($basicData, [
+                'foto' => $photo['foto'],
+                'foto_url' => $photo['foto_url'],
+                'photo_url' => $photo['photo_url'],
+                'avatar' => $photo['avatar'],
+                'foto_siswa' => $photo['foto_siswa'],
+                'foto_src' => $photo['foto_src'],
+                'preview_foto' => $photo['preview_foto'],
+            ]);
         }
 
         try {
@@ -1212,7 +1442,18 @@ class ChatController extends Controller
                 'message' => $e->getMessage(),
             ]);
 
-            return $basic['data'];
+            $basicData = $basic['data'];
+            $photo = $this->normalizeSiswaPhotoFields($basicData);
+
+            return array_merge($basicData, [
+                'foto' => $photo['foto'],
+                'foto_url' => $photo['foto_url'],
+                'photo_url' => $photo['photo_url'],
+                'avatar' => $photo['avatar'],
+                'foto_siswa' => $photo['foto_siswa'],
+                'foto_src' => $photo['foto_src'],
+                'preview_foto' => $photo['preview_foto'],
+            ]);
         }
 
         if (
@@ -1227,9 +1468,31 @@ class ChatController extends Controller
                 'raw' => $detail,
             ]);
 
-            return $basic['data'];
+            $basicData = $basic['data'];
+            $photo = $this->normalizeSiswaPhotoFields($basicData);
+
+            return array_merge($basicData, [
+                'foto' => $photo['foto'],
+                'foto_url' => $photo['foto_url'],
+                'photo_url' => $photo['photo_url'],
+                'avatar' => $photo['avatar'],
+                'foto_siswa' => $photo['foto_siswa'],
+                'foto_src' => $photo['foto_src'],
+                'preview_foto' => $photo['preview_foto'],
+            ]);
         }
 
-        return $detail['data'];
+        $merged = array_merge($basic['data'], $detail['data']);
+        $photo = $this->normalizeSiswaPhotoFields($merged);
+
+        return array_merge($merged, [
+            'foto' => $photo['foto'],
+            'foto_url' => $photo['foto_url'],
+            'photo_url' => $photo['photo_url'],
+            'avatar' => $photo['avatar'],
+            'foto_siswa' => $photo['foto_siswa'],
+            'foto_src' => $photo['foto_src'],
+            'preview_foto' => $photo['preview_foto'],
+        ]);
     }
 }
