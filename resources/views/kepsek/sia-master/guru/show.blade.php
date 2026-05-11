@@ -8,46 +8,77 @@
             ? asset('images/default-user.png')
             : asset('images/default-siswa.png');
 
-        $fotoRaw = $guru->foto ?? null;
-        $fotoPath = null;
+        $resolveGuruFoto = function ($guru) use ($defaultFoto) {
+            $fotoUrl = $guru->foto_url ?? null;
 
-        if (!empty($fotoRaw)) {
-            $rawFoto = trim((string) $fotoRaw);
+            if (is_scalar($fotoUrl) && trim((string) $fotoUrl) !== '') {
+                $fotoUrl = trim((string) $fotoUrl);
 
-            if (preg_match('/^https?:\/\//i', $rawFoto)) {
-                $fotoPath = $rawFoto;
-            } else {
+                if (preg_match('/^https?:\/\//i', $fotoUrl)) {
+                    return $fotoUrl;
+                }
+
+                $fotoUrl = str_replace('\\', '/', $fotoUrl);
+                $fotoUrl = preg_replace('#/+#', '/', $fotoUrl);
+                $fotoUrl = ltrim($fotoUrl, '/');
+
+                $siaPublicUrl = rtrim((string) (config('services.sia.public_url') ?: config('services.sia.base_url')), '/');
+
+                if ($siaPublicUrl !== '') {
+                    return $siaPublicUrl . '/' . $fotoUrl;
+                }
+            }
+
+            $fotoRaw = $guru->foto ?? null;
+
+            if (!empty($fotoRaw)) {
+                $rawFoto = trim((string) $fotoRaw);
+
+                if (preg_match('/^https?:\/\//i', $rawFoto)) {
+                    return $rawFoto;
+                }
+
                 $rawFoto = str_replace('\\', '/', $rawFoto);
                 $rawFoto = preg_replace('#/+#', '/', $rawFoto);
                 $rawFoto = ltrim($rawFoto, '/');
 
                 $basename = basename($rawFoto);
 
-                $candidates = [
+                $localCandidates = [
                     $rawFoto,
                     'foto_guru/' . $basename,
                     'sia/' . $rawFoto,
                     'sia/foto_guru/' . $basename,
+                    'storage/' . $rawFoto,
                     'storage/foto_guru/' . $basename,
                     'storage/sia/foto_guru/' . $basename,
                 ];
 
-                $candidates = array_values(array_unique(array_filter($candidates)));
-
-                foreach ($candidates as $relativePath) {
+                foreach (array_unique(array_filter($localCandidates)) as $relativePath) {
                     if (is_file(public_path($relativePath))) {
-                        $fotoPath = asset($relativePath);
-                        break;
+                        return asset($relativePath);
                     }
                 }
+
+                $siaPublicUrl = rtrim((string) (config('services.sia.public_url') ?: config('services.sia.base_url')), '/');
+
+                if ($siaPublicUrl !== '') {
+                    if (str_starts_with($rawFoto, 'storage/')) {
+                        return $siaPublicUrl . '/' . $rawFoto;
+                    }
+
+                    if (str_starts_with($rawFoto, 'foto_guru/')) {
+                        return $siaPublicUrl . '/storage/' . $rawFoto;
+                    }
+
+                    return $siaPublicUrl . '/storage/foto_guru/' . $basename;
+                }
             }
-        }
 
-        if (!$fotoPath && !empty($guru->foto_url) && preg_match('/^https?:\/\//i', (string) $guru->foto_url)) {
-            $fotoPath = $guru->foto_url;
-        }
+            return $defaultFoto;
+        };
 
-        $previewFoto = $fotoPath ?: $defaultFoto;
+        $previewFoto = $resolveGuruFoto($guru);
 
         $ttl = $guru->tanggal_lahir
             ? \Carbon\Carbon::parse($guru->tanggal_lahir)->translatedFormat('d-m-Y')
@@ -88,12 +119,12 @@
                     </div>
 
                     <a href="{{ route('kepsek.sia-master.guru.index') }}"
-                         class="inline-flex items-center gap-2 self-start rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 hover:shadow-md">
-    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-        stroke="currentColor" stroke-width="2.2">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M15 18l-6-6 6-6" />
-    </svg>
-    <span>Kembali</span>
+                        class="inline-flex items-center gap-2 self-start rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 hover:shadow-md">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor" stroke-width="2.2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 18l-6-6 6-6" />
+                        </svg>
+                        <span>Kembali</span>
                     </a>
                 </div>
             </div>
@@ -101,10 +132,10 @@
             {{-- TAB --}}
             <nav class="flex flex-wrap gap-2 border-b border-slate-100 bg-white px-4 py-3 md:px-5">
                 @foreach ([
-            'pribadi' => 'Data Pribadi',
-            'kontak' => 'Kontak',
-            'status' => 'Status',
-        ] as $key => $label)
+                    'pribadi' => 'Data Pribadi',
+                    'kontak' => 'Kontak',
+                    'status' => 'Status',
+                ] as $key => $label)
                     <button type="button" @click="tab='{{ $key }}'"
                         :class="tab==='{{ $key }}'
                             ? 'border-blue-200 bg-white/95 text-blue-700 shadow-[0_8px_20px_rgba(59,130,246,0.10)]'

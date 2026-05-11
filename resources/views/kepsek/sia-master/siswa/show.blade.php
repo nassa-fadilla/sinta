@@ -8,42 +8,73 @@
             ? asset('images/default-user.png')
             : asset('images/default-siswa.png');
 
-        $fotoRaw = $siswa->foto ?? null;
-        $fotoPath = null;
+        $resolveSiswaFoto = function ($siswa) use ($defaultFoto) {
+            $candidatesValue = [
+                data_get($siswa, 'foto_src'),
+                data_get($siswa, 'foto_url'),
+                data_get($siswa, 'photo_url'),
+                data_get($siswa, 'avatar'),
+                data_get($siswa, 'foto'),
+                data_get($siswa, 'foto_siswa'),
+            ];
 
-        if (!empty($fotoRaw)) {
-            $rawFoto = trim((string) $fotoRaw);
+            $foto = null;
 
-            if (preg_match('/^https?:\/\//i', $rawFoto)) {
-                $fotoPath = $rawFoto;
-            } else {
-                $rawFoto = str_replace('\\', '/', $rawFoto);
-                $rawFoto = preg_replace('#/+#', '/', $rawFoto);
-                $rawFoto = ltrim($rawFoto, '/');
-
-                $basename = basename($rawFoto);
-
-                $candidates = [
-                    $rawFoto,
-                    'foto_siswa/' . $basename,
-                    'sia/' . $rawFoto,
-                    'sia/foto_siswa/' . $basename,
-                    'storage/foto_siswa/' . $basename,
-                    'storage/sia/foto_siswa/' . $basename,
-                ];
-
-                $candidates = array_values(array_unique(array_filter($candidates)));
-
-                foreach ($candidates as $relativePath) {
-                    if (is_file(public_path($relativePath))) {
-                        $fotoPath = asset($relativePath);
-                        break;
-                    }
+            foreach ($candidatesValue as $value) {
+                if (is_scalar($value) && trim((string) $value) !== '' && trim((string) $value) !== '-') {
+                    $foto = trim((string) $value);
+                    break;
                 }
             }
-        }
 
-        $previewFoto = $fotoPath ?: $defaultFoto;
+            if (!$foto) {
+                return $defaultFoto;
+            }
+
+            if (preg_match('/^https?:\/\//i', $foto)) {
+                return $foto;
+            }
+
+            $foto = str_replace('\\', '/', $foto);
+            $foto = preg_replace('#/+#', '/', $foto);
+            $foto = ltrim($foto, '/');
+
+            $basename = basename($foto);
+
+            $localCandidates = [
+                $foto,
+                'sia/' . $foto,
+                'foto_siswa/' . $basename,
+                'sia/foto_siswa/' . $basename,
+                'storage/' . $foto,
+                'storage/foto_siswa/' . $basename,
+                'storage/sia/foto_siswa/' . $basename,
+            ];
+
+            foreach (array_unique(array_filter($localCandidates)) as $relativePath) {
+                if (is_file(public_path($relativePath))) {
+                    return asset($relativePath);
+                }
+            }
+
+            $siaPublicUrl = rtrim((string) (config('services.sia.public_url') ?: config('services.sia.base_url')), '/');
+
+            if ($siaPublicUrl === '') {
+                return $defaultFoto;
+            }
+
+            if (str_starts_with($foto, 'storage/')) {
+                return $siaPublicUrl . '/' . $foto;
+            }
+
+            if (str_starts_with($foto, 'foto_siswa/')) {
+                return $siaPublicUrl . '/storage/' . $foto;
+            }
+
+            return $siaPublicUrl . '/storage/foto_siswa/' . $basename;
+        };
+
+        $previewFoto = $resolveSiswaFoto($siswa);
 
         $ttl = $siswa->tanggal_lahir
             ? \Carbon\Carbon::parse($siswa->tanggal_lahir)->translatedFormat('d-m-Y')
@@ -84,12 +115,12 @@
                     </div>
 
                     <a href="{{ route('kepsek.sia-master.siswa.index') }}"
-                         class="inline-flex items-center gap-2 self-start rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 hover:shadow-md">
-    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-        stroke="currentColor" stroke-width="2.2">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M15 18l-6-6 6-6" />
-    </svg>
-    <span>Kembali</span>
+                        class="inline-flex items-center gap-2 self-start rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 hover:shadow-md">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor" stroke-width="2.2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 18l-6-6 6-6" />
+                        </svg>
+                        <span>Kembali</span>
                     </a>
                 </div>
             </div>
@@ -97,12 +128,12 @@
             {{-- TAB --}}
             <nav class="flex flex-wrap gap-2 border-b border-slate-100 bg-white px-4 py-3 md:px-5">
                 @foreach ([
-            'pribadi' => 'Data Pribadi',
-            'alamat' => 'Alamat',
-            'kontak' => 'Kontak',
-            'keluarga' => 'Data Keluarga',
-            'lainnya' => 'Lainnya',
-        ] as $key => $label)
+                    'pribadi' => 'Data Pribadi',
+                    'alamat' => 'Alamat',
+                    'kontak' => 'Kontak',
+                    'keluarga' => 'Data Keluarga',
+                    'lainnya' => 'Lainnya',
+                ] as $key => $label)
                     <button type="button" @click="tab='{{ $key }}'"
                         :class="tab==='{{ $key }}'
                             ? 'border-blue-200 bg-white/95 text-blue-700 shadow-[0_8px_20px_rgba(59,130,246,0.10)]'

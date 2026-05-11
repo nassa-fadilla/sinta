@@ -29,6 +29,84 @@
             $makeUrl = function ($p) use ($queryBase) {
                 return request()->url() . '?' . http_build_query(array_merge($queryBase, ['page' => $p]));
             };
+
+            $resolveSiswaFoto = function ($row) {
+                $candidatesValue = [
+                    $row['foto_src'] ?? null,
+                    $row['foto_url'] ?? null,
+                    $row['photo_url'] ?? null,
+                    $row['avatar'] ?? null,
+                    $row['foto'] ?? null,
+                    $row['foto_siswa'] ?? null,
+                ];
+
+                $foto = null;
+
+                foreach ($candidatesValue as $value) {
+                    if (is_scalar($value) && trim((string) $value) !== '' && trim((string) $value) !== '-') {
+                        $foto = trim((string) $value);
+                        break;
+                    }
+                }
+
+                if (!$foto) {
+                    return null;
+                }
+
+                if (preg_match('/^https?:\/\//i', $foto)) {
+                    return $foto;
+                }
+
+                $foto = str_replace('\\', '/', $foto);
+                $foto = preg_replace('#/+#', '/', $foto);
+                $foto = ltrim($foto, '/');
+
+                $basename = basename($foto);
+
+                $localCandidates = [
+                    $foto,
+                    'sia/' . $foto,
+                    'foto_siswa/' . $basename,
+                    'sia/foto_siswa/' . $basename,
+                    'storage/' . $foto,
+                    'storage/foto_siswa/' . $basename,
+                    'storage/sia/foto_siswa/' . $basename,
+                ];
+
+                foreach (array_unique(array_filter($localCandidates)) as $relativePath) {
+                    if (is_file(public_path($relativePath))) {
+                        return asset($relativePath);
+                    }
+                }
+
+                $siaPublicUrl = rtrim((string) (config('services.sia.public_url') ?: config('services.sia.base_url')), '/');
+
+                if ($siaPublicUrl === '') {
+                    return null;
+                }
+
+                if (str_starts_with($foto, 'storage/')) {
+                    return $siaPublicUrl . '/' . $foto;
+                }
+
+                if (str_starts_with($foto, 'foto_siswa/')) {
+                    return $siaPublicUrl . '/storage/' . $foto;
+                }
+
+                return $siaPublicUrl . '/storage/foto_siswa/' . $basename;
+            };
+
+            $formatJk = function ($value) {
+                $jk = strtoupper(trim((string) $value));
+
+                return match ($jk) {
+                    'L' => 'L',
+                    'P' => 'P',
+                    'LAKI-LAKI', 'LAKI', 'MALE', 'M' => 'L',
+                    'PEREMPUAN', 'WANITA', 'FEMALE', 'F' => 'P',
+                    default => $value ?: '-',
+                };
+            };
         @endphp
 
         <section
@@ -149,7 +227,7 @@
                                 @forelse($pageItems as $row)
                                     @php
                                         $statusValue = strtolower((string) ($row['status'] ?? ''));
-                                        $jk = $row['jenis_kelamin'] ?? '-';
+                                        $jk = $formatJk($row['jenis_kelamin'] ?? $row['jk'] ?? '-');
 
                                         $statusClass = match ($statusValue) {
                                             'aktif' => 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/80',
@@ -167,40 +245,7 @@
                                             default => 'bg-slate-400',
                                         };
 
-                                        $fotoRaw = $row['foto'] ?? null;
-                                        $fotoThumb = null;
-
-                                        if (!empty($fotoRaw)) {
-                                            $rawFoto = trim((string) $fotoRaw);
-
-                                            if (preg_match('/^https?:\/\//i', $rawFoto)) {
-                                                $fotoThumb = $rawFoto;
-                                            } else {
-                                                $rawFoto = str_replace('\\', '/', $rawFoto);
-                                                $rawFoto = preg_replace('#/+#', '/', $rawFoto);
-                                                $rawFoto = ltrim($rawFoto, '/');
-
-                                                $basename = basename($rawFoto);
-
-                                                $candidates = [
-                                                    $rawFoto,
-                                                    'foto_siswa/' . $basename,
-                                                    'sia/' . $rawFoto,
-                                                    'sia/foto_siswa/' . $basename,
-                                                    'storage/foto_siswa/' . $basename,
-                                                    'storage/sia/foto_siswa/' . $basename,
-                                                ];
-
-                                                $candidates = array_values(array_unique(array_filter($candidates)));
-
-                                                foreach ($candidates as $relativePath) {
-                                                    if (is_file(public_path($relativePath))) {
-                                                        $fotoThumb = asset($relativePath);
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                        }
+                                        $fotoThumb = $resolveSiswaFoto($row);
 
                                         $inisial = \Illuminate\Support\Str::of($row['nama'] ?? 'S')
                                             ->trim()
@@ -208,6 +253,10 @@
                                             ->map(fn($p) => mb_substr($p, 0, 1))
                                             ->take(2)
                                             ->implode('');
+
+                                        if (trim((string) $inisial) === '') {
+                                            $inisial = 'S';
+                                        }
                                     @endphp
 
                                     <tr
@@ -236,6 +285,12 @@
                                                         class="truncate font-semibold text-slate-800 transition duration-300 group-hover:text-blue-700">
                                                         {{ $row['nama'] ?? '-' }}
                                                     </div>
+
+                                                    @if(!empty($row['rombel_nama']) && $row['rombel_nama'] !== '-')
+                                                        <div class="mt-0.5 truncate text-xs text-slate-500">
+                                                            {{ $row['rombel_nama'] }}
+                                                        </div>
+                                                    @endif
                                                 </div>
                                             </div>
                                         </td>
@@ -280,13 +335,16 @@
                                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none"
                                                         viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                                                         <path stroke-linecap="round" stroke-linejoin="round"
-                                                            d="M9 13h6m-6 4h6M5 5h14v14H5z" />
+                                                            d="M4 5a2 2 0 012-2h10a2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5z" />
+                                                        <path stroke-linecap="round" stroke-linejoin="round"
+                                                            d="M8 7h8M8 11h5" />
                                                     </svg>
                                                 </div>
                                                 <div>
                                                     <p class="text-sm font-semibold text-slate-700">Tidak ada data siswa.</p>
-                                                    <p class="mt-1 text-xs text-slate-500">Coba ubah kata kunci pencarian atau
-                                                        filter yang digunakan.</p>
+                                                    <p class="mt-1 text-xs text-slate-500">
+                                                        Coba ubah kata kunci pencarian atau filter yang digunakan.
+                                                    </p>
                                                 </div>
                                             </div>
                                         </td>
