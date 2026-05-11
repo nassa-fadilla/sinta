@@ -44,35 +44,105 @@
         |--------------------------------------------------------------------------
         | Foto guru
         |--------------------------------------------------------------------------
-        | Disamakan dengan navbar/sidebar: tetap melalui route guru.profil.photo.
-        | Query versi ditambahkan agar browser tidak menampilkan cache foto guru lama.
+        | Prioritas:
+        | 1. foto_url dari API SIA
+        | 2. photo_url/avatar/foto/photo dari API SIA
+        | 3. storage publik SIA berdasarkan SIA_PUBLIC_URL
+        | 4. route guru.profil.photo sebagai fallback lama
+        | 5. default foto
         */
-        $fotoRaw = trim((string) (
-            $guru->foto_url
-            ?? $guru->foto
-            ?? $guru->photo_url
-            ?? $guru->photo
-            ?? ''
-        ));
+        $resolveGuruFoto = function ($guru = null) use ($defaultFoto, $u) {
+            $candidateValues = [
+                data_get($guru, 'foto_url'),
+                data_get($guru, 'photo_url'),
+                data_get($guru, 'avatar'),
+                data_get($guru, 'foto'),
+                data_get($guru, 'photo'),
+                data_get($guru, 'gambar'),
+                data_get($guru, 'image'),
+            ];
 
-        $fotoVersion = md5(
-            (string) ($u?->sia_user_id ?? '') . '|' .
-            (string) ($u?->id ?? '') . '|' .
-            (string) ($guru->id ?? '') . '|' .
-            (string) ($guru->nuptk ?? '') . '|' .
-            (string) ($guru->nip ?? '') . '|' .
-            $fotoRaw
-        );
+            foreach ($candidateValues as $value) {
+                if (!is_scalar($value)) {
+                    continue;
+                }
 
-        $fotoSrc = RouteFacade::has('guru.profil.photo')
-            ? route('guru.profil.photo', ['v' => $fotoVersion])
-            : $defaultFoto;
+                $foto = trim((string) $value);
 
-        $previewFoto = $fotoRaw !== '';
+                if ($foto === '' || $foto === '-') {
+                    continue;
+                }
 
-        if (!$previewFoto && $fotoSrc !== $defaultFoto) {
-            $previewFoto = true;
-        }
+                if (preg_match('/^https?:\/\//i', $foto)) {
+                    $version = md5(
+                        (string) ($u?->sia_user_id ?? '') . '|' .
+                        (string) ($u?->id ?? '') . '|' .
+                        (string) ($u?->updated_at ?? '') . '|' .
+                        (string) data_get($guru, 'updated_at', '') . '|' .
+                        $foto
+                    );
+
+                    return $foto . (str_contains($foto, '?') ? '&' : '?') . 'v=' . $version;
+                }
+
+                $foto = str_replace('\\', '/', $foto);
+                $foto = preg_replace('#/+#', '/', $foto);
+                $foto = ltrim($foto, '/');
+
+                $basename = basename($foto);
+
+                $localCandidates = [
+                    $foto,
+                    'foto_guru/' . $basename,
+                    'sia/' . $foto,
+                    'sia/foto_guru/' . $basename,
+                    'storage/' . $foto,
+                    'storage/foto_guru/' . $basename,
+                    'storage/sia/foto_guru/' . $basename,
+                ];
+
+                foreach (array_unique(array_filter($localCandidates)) as $relativePath) {
+                    if (is_file(public_path($relativePath))) {
+                        return asset($relativePath);
+                    }
+                }
+
+                $siaPublicUrl = rtrim((string) (config('services.sia.public_url') ?: config('services.sia.base_url')), '/');
+
+                if ($siaPublicUrl !== '') {
+                    if (str_starts_with($foto, 'storage/')) {
+                        return $siaPublicUrl . '/' . $foto;
+                    }
+
+                    if (str_starts_with($foto, 'foto_guru/')) {
+                        return $siaPublicUrl . '/storage/' . $foto;
+                    }
+
+                    return $siaPublicUrl . '/storage/foto_guru/' . $basename;
+                }
+            }
+
+            if (RouteFacade::has('guru.profil.photo')) {
+                $fotoVersion = md5(
+                    (string) ($u?->sia_user_id ?? '') . '|' .
+                    (string) ($u?->id ?? '') . '|' .
+                    (string) ($u?->updated_at ?? '')
+                );
+
+                return route('guru.profil.photo', ['v' => $fotoVersion]);
+            }
+
+            return $defaultFoto;
+        };
+
+        $fotoSrc = $resolveGuruFoto($guru);
+
+        $previewFoto = !empty($guru?->foto_url)
+            || !empty($guru?->photo_url)
+            || !empty($guru?->avatar)
+            || !empty($guru?->foto)
+            || !empty($guru?->photo)
+            || RouteFacade::has('guru.profil.photo');
     @endphp
 
     <div x-data="{ openFoto: false }" class="space-y-6">
@@ -142,15 +212,29 @@
                             </div>
 
                             <div class="mt-5">
-                                <button type="button" @click="openFoto = true"
-                                    class="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm font-medium text-slate-700 transition-all duration-200 hover:-translate-y-[1px] hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 hover:shadow-sm">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-                                        stroke="currentColor" stroke-width="1.8">
-                                        <path stroke-linecap="round" stroke-linejoin="round"
-                                            d="M15 10l4.553-4.553a1.5 1.5 0 0 1 2.121 2.121L17.12 12.12M15 10v8.25A2.25 2.25 0 0 1 12.75 20.5h-8.5A2.25 2.25 0 0 1 2 18.25v-8.5A2.25 2.25 0 0 1 4.25 7.5H13" />
-                                    </svg>
-                                    <span>Preview Foto</span>
-                                </button>
+                                @if ($previewFoto)
+                                    <button type="button" @click="openFoto = true"
+                                        class="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm font-medium text-slate-700 transition-all duration-200 hover:-translate-y-[1px] hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 hover:shadow-sm">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                            stroke="currentColor" stroke-width="1.8">
+                                            <path stroke-linecap="round" stroke-linejoin="round"
+                                                d="M15 10l4.553-4.553a1.5 1.5 0 0 1 2.121 2.121L17.12 12.12M15 10v8.25A2.25 2.25 0 0 1 12.75 20.5h-8.5A2.25 2.25 0 0 1 2 18.25v-8.5A2.25 2.25 0 0 1 4.25 7.5H13" />
+                                        </svg>
+                                        <span>Preview Foto</span>
+                                    </button>
+                                @else
+                                    <button type="button" disabled
+                                        class="inline-flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-100 px-3 py-3 text-sm font-medium text-slate-400">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                            stroke="currentColor" stroke-width="1.8">
+                                            <path stroke-linecap="round" stroke-linejoin="round"
+                                                d="M3 16.5V8.25A2.25 2.25 0 0 1 5.25 6h3.379a1.5 1.5 0 0 0 1.06-.44l.621-.62A1.5 1.5 0 0 1 11.371 4.5h3.258a1.5 1.5 0 0 1 1.06.44l.621.62a1.5 1.5 0 0 0 1.06.44h3.38A2.25 2.25 0 0 1 23 8.25v8.25A2.25 2.25 0 0 1 20.75 18.75H5.25A2.25 2.25 0 0 1 3 16.5z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round"
+                                                d="M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0z" />
+                                        </svg>
+                                        <span>Foto Tidak Tersedia</span>
+                                    </button>
+                                @endif
                             </div>
                         </div>
                     </aside>

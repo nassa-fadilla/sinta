@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Services\SiaClient;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Collection;
 
 class MonitoringController extends Controller
 {
@@ -202,8 +201,6 @@ class MonitoringController extends Controller
                         'nama_tahun' => $namaTahun,
                         'semester' => $semester,
                         'status' => $data['status'] ?? null,
-
-                        // dipakai untuk filter presensi jika baris presensi tidak membawa tahun_ajaran_id
                         'tanggal_mulai' => $this->toString(
                             $data['tanggal_mulai']
                             ?? $data['tgl_mulai']
@@ -241,7 +238,6 @@ class MonitoringController extends Controller
                         'nama_tahun' => $namaTahun,
                         'semester' => $semester,
                         'status' => $ta['status'] ?? null,
-
                         'tanggal_mulai' => $this->toString(
                             $ta['tanggal_mulai']
                             ?? $ta['tgl_mulai']
@@ -370,11 +366,6 @@ class MonitoringController extends Controller
 
         $rombelRows = collect();
 
-        /*
-        |--------------------------------------------------------------------------
-        | 1. Prioritas: ambil rombel wali kelas berdasarkan guru_id + tahun ajaran aktif
-        |--------------------------------------------------------------------------
-        */
         try {
             $resp = $this->sia->masterRombel(null, array_filter([
                 'guru_id' => $guruId,
@@ -388,11 +379,6 @@ class MonitoringController extends Controller
             report($e);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | 2. Fallback: ambil rombel berdasarkan guru_id saja
-        |--------------------------------------------------------------------------
-        */
         if ($rombelRows->isEmpty()) {
             try {
                 $resp = $this->sia->masterRombel(null, array_filter([
@@ -406,11 +392,6 @@ class MonitoringController extends Controller
             }
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | 3. Fallback aman: ambil list umum, lalu cocokkan manual dengan guru login
-        |--------------------------------------------------------------------------
-        */
         if ($rombelRows->isEmpty()) {
             try {
                 $resp = $this->sia->masterRombel();
@@ -435,13 +416,6 @@ class MonitoringController extends Controller
             return null;
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | 4. Pilih rombel yang cocok tahun ajaran aktif.
-        | Jika list belum membawa tahun ajaran, kandidat belum langsung dibuang.
-        | Validasi akhir dilakukan pada detail rombel.
-        |--------------------------------------------------------------------------
-        */
         $matched = $normalized->first(function ($row) use ($activeTahunAjaranId, $activeTahunAjaranName) {
             return $this->rowMatchesActiveAcademicPeriod($row, $activeTahunAjaranId, $activeTahunAjaranName);
         });
@@ -465,11 +439,6 @@ class MonitoringController extends Controller
             return null;
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | 5. Lengkapi detail rombel, lalu validasi ulang tahun ajaran aktif
-        |--------------------------------------------------------------------------
-        */
         try {
             $detailResp = $this->sia->masterRombelDetail((int) $matched['id']);
             $detailData = $this->extractData($detailResp);
@@ -613,31 +582,9 @@ class MonitoringController extends Controller
                 $nis = $this->toString($row['nis'] ?? data_get($row, 'siswa.nis') ?? '-', '-');
                 $nisn = $this->toString($row['nisn'] ?? data_get($row, 'siswa.nisn') ?? '-', '-');
 
-                $tahunAjaran = $this->pickFirstScalar($row, [
-                    'tahun_ajaran',
-                    'tahunAjaran',
-                    'ta',
-                    'tahun_ajaran_label',
-                    'nama_tahun',
-                ]);
+                $siswaData = [];
 
-                if ($tahunAjaran === null && isset($row['tahun_ajaran_detail'])) {
-                    $tahunAjaran = $this->getDisplayValue($row['tahun_ajaran_detail'], [
-                        'nama_tahun',
-                        'nama',
-                        'label',
-                    ]);
-                }
-
-                if ($tahunAjaran === null && isset($row['tahun_ajaran_obj'])) {
-                    $tahunAjaran = $this->getDisplayValue($row['tahun_ajaran_obj'], [
-                        'nama_tahun',
-                        'nama',
-                        'label',
-                    ]);
-                }
-
-                if ($nis !== '-' && $nisn === '-') {
+                if ($nis !== '-') {
                     try {
                         $siswaResp = $this->sia->getSiswaByNis($nis);
                         $siswaData = $this->extractData($siswaResp);
@@ -647,21 +594,58 @@ class MonitoringController extends Controller
                         }
                     } catch (\Throwable $e) {
                         report($e);
+                        $siswaData = [];
                     }
+                }
+
+                $mergedRow = array_merge($row, array_filter($this->arr($siswaData), function ($value) {
+                    return $value !== null && $value !== '';
+                }));
+
+                $tahunAjaran = $this->pickFirstScalar($mergedRow, [
+                    'tahun_ajaran',
+                    'tahunAjaran',
+                    'ta',
+                    'tahun_ajaran_label',
+                    'nama_tahun',
+                ]);
+
+                if ($tahunAjaran === null && isset($mergedRow['tahun_ajaran_detail'])) {
+                    $tahunAjaran = $this->getDisplayValue($mergedRow['tahun_ajaran_detail'], [
+                        'nama_tahun',
+                        'nama',
+                        'label',
+                    ]);
+                }
+
+                if ($tahunAjaran === null && isset($mergedRow['tahun_ajaran_obj'])) {
+                    $tahunAjaran = $this->getDisplayValue($mergedRow['tahun_ajaran_obj'], [
+                        'nama_tahun',
+                        'nama',
+                        'label',
+                    ]);
                 }
 
                 if ($tahunAjaran === null || trim((string) $tahunAjaran) === '' || $tahunAjaran === '-') {
                     $tahunAjaran = $tahunAjaranDefault;
                 }
 
+                [$fotoSrc, $previewFoto] = $this->resolveSiswaPhotoFromRow($mergedRow);
+
                 return (object) [
-                    'id' => $this->toInt($row['id'] ?? $row['siswa_id'] ?? data_get($row, 'siswa.id') ?? null),
+                    'id' => $this->toInt($mergedRow['id'] ?? $mergedRow['siswa_id'] ?? data_get($mergedRow, 'siswa.id') ?? null),
                     'nis' => $nis,
                     'nisn' => $nisn,
-                    'nama' => $this->toString($row['nama'] ?? $row['siswa_nama'] ?? data_get($row, 'siswa.nama') ?? '-', '-'),
-                    'jk' => $this->normalizeJenisKelamin($row['jenis_kelamin'] ?? $row['jk'] ?? data_get($row, 'siswa.jenis_kelamin') ?? data_get($row, 'siswa.jk') ?? '-'),
+                    'nama' => $this->toString($mergedRow['nama'] ?? $mergedRow['siswa_nama'] ?? data_get($mergedRow, 'siswa.nama') ?? '-', '-'),
+                    'jk' => $this->normalizeJenisKelamin($mergedRow['jenis_kelamin'] ?? $mergedRow['jk'] ?? data_get($mergedRow, 'siswa.jenis_kelamin') ?? data_get($mergedRow, 'siswa.jk') ?? '-'),
                     'tahun_ajaran' => $this->toString($tahunAjaran, '-'),
-                    'foto' => $row['foto'] ?? data_get($row, 'siswa.foto') ?? null,
+                    'foto' => $this->toString($mergedRow['foto'] ?? data_get($mergedRow, 'siswa.foto') ?? '', ''),
+                    'foto_url' => $this->toString($mergedRow['foto_url'] ?? data_get($mergedRow, 'siswa.foto_url') ?? '', ''),
+                    'photo_url' => $this->toString($mergedRow['photo_url'] ?? data_get($mergedRow, 'siswa.photo_url') ?? '', ''),
+                    'avatar' => $this->toString($mergedRow['avatar'] ?? data_get($mergedRow, 'siswa.avatar') ?? '', ''),
+                    'foto_siswa' => $this->toString($mergedRow['foto_siswa'] ?? data_get($mergedRow, 'siswa.foto_siswa') ?? '', ''),
+                    'foto_src' => $fotoSrc,
+                    'preview_foto' => $previewFoto,
                 ];
             })
             ->sortBy('nama')
@@ -681,9 +665,7 @@ class MonitoringController extends Controller
             ? asset('images/default-user.png')
             : asset('images/default-siswa.png');
 
-        [$fotoSrc, $previewFoto] = $this->resolveSiswaPhoto(
-            $this->toString($row['foto'] ?? '', '')
-        );
+        [$fotoSrc, $previewFoto] = $this->resolveSiswaPhotoFromRow($row);
 
         $jkRaw = strtoupper(trim((string) ($row['jenis_kelamin'] ?? $row['jk'] ?? '')));
         $jkLabel = match ($jkRaw) {
@@ -726,6 +708,10 @@ class MonitoringController extends Controller
             'email' => $this->toString($row['email'] ?? '-', '-'),
             'no_hp' => $this->toString($row['no_hp'] ?? '-', '-'),
             'foto' => $this->toString($row['foto'] ?? '-', '-'),
+            'foto_url' => $this->toString($row['foto_url'] ?? '', ''),
+            'photo_url' => $this->toString($row['photo_url'] ?? '', ''),
+            'avatar' => $this->toString($row['avatar'] ?? '', ''),
+            'foto_siswa' => $this->toString($row['foto_siswa'] ?? '', ''),
             'foto_src' => $fotoSrc,
             'preview_foto' => $previewFoto,
             'default_foto' => $defaultFoto,
@@ -908,21 +894,10 @@ class MonitoringController extends Controller
                 ];
             })
             ->filter(function ($row) use ($hasAcademicContext, $activePeriod, $rombel) {
-                /*
-                |--------------------------------------------------------------------------
-                | Jika presensi membawa tahun_ajaran_id / rombel_id, pakai filter akademik.
-                |--------------------------------------------------------------------------
-                */
                 if ($hasAcademicContext) {
                     return $this->rowMatchesDetailContext($row, $activePeriod, $rombel);
                 }
 
-                /*
-                |--------------------------------------------------------------------------
-                | Jika presensi tidak membawa konteks akademik, filter berdasarkan tanggal.
-                | Ini yang mencegah data tahun ajaran nonaktif tetap tampil.
-                |--------------------------------------------------------------------------
-                */
                 return $this->rowMatchesActiveDatePeriod($row, $activePeriod);
             })
             ->values()
@@ -1106,12 +1081,6 @@ class MonitoringController extends Controller
             return [null, null];
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Fallback dari format tahun ajaran, misalnya:
-        | 2026/2027, 2026-2027, atau 2026 2027
-        |--------------------------------------------------------------------------
-        */
         if (!preg_match('/(20\d{2})\D+(20\d{2})/', $namaTahun, $matches)) {
             return [null, null];
         }
@@ -1119,14 +1088,6 @@ class MonitoringController extends Controller
         $tahunAwal = (int) $matches[1];
         $tahunAkhir = (int) $matches[2];
 
-        /*
-        |--------------------------------------------------------------------------
-        | Asumsi kalender akademik umum:
-        | Ganjil: Juli - Desember tahun awal
-        | Genap : Januari - Juni tahun akhir
-        | Jika semester tidak diketahui, pakai satu tahun ajaran penuh.
-        |--------------------------------------------------------------------------
-        */
         if (in_array($semester, ['ganjil', 'gasal', '1'], true)) {
             return [
                 Carbon::create($tahunAwal, 7, 1, 0, 0, 0, 'Asia/Jakarta')->startOfDay(),
@@ -1146,6 +1107,7 @@ class MonitoringController extends Controller
             Carbon::create($tahunAkhir, 6, 30, 23, 59, 59, 'Asia/Jakarta')->endOfDay(),
         ];
     }
+
     /* =========================================================
      * NORMALIZER UMUM
      * =======================================================*/
@@ -1312,9 +1274,22 @@ class MonitoringController extends Controller
      * =======================================================*/
     protected function resolveSiswaPhoto(string $foto): array
     {
+        return $this->resolveSiswaPhotoFromRow([
+            'foto' => $foto,
+        ]);
+    }
+
+    protected function resolveSiswaPhotoFromRow($row): array
+    {
         $defaultFoto = file_exists(public_path('images/default-user.png'))
             ? asset('images/default-user.png')
             : asset('images/default-siswa.png');
+
+        $foto = $this->pickSiswaPhotoValue($row);
+
+        if (!$foto) {
+            return [$defaultFoto, null];
+        }
 
         $foto = trim((string) $foto);
 
@@ -1337,18 +1312,70 @@ class MonitoringController extends Controller
             'sia/' . $foto,
             'foto_siswa/' . $basename,
             'sia/foto_siswa/' . $basename,
+            'storage/' . $foto,
             'storage/foto_siswa/' . $basename,
             'storage/sia/foto_siswa/' . $basename,
         ];
 
-        foreach (array_unique($candidates) as $relativePath) {
+        foreach (array_unique(array_filter($candidates)) as $relativePath) {
             if (is_file(public_path($relativePath))) {
                 $asset = asset($relativePath);
                 return [$asset, $asset];
             }
         }
 
+        $siaPublicUrl = rtrim((string) (config('services.sia.public_url') ?: config('services.sia.base_url')), '/');
+
+        if ($siaPublicUrl !== '') {
+            if (str_starts_with($foto, 'storage/')) {
+                $url = $siaPublicUrl . '/' . $foto;
+                return [$url, $url];
+            }
+
+            if (str_starts_with($foto, 'foto_siswa/')) {
+                $url = $siaPublicUrl . '/storage/' . $foto;
+                return [$url, $url];
+            }
+
+            $url = $siaPublicUrl . '/storage/foto_siswa/' . $basename;
+            return [$url, $url];
+        }
+
         return [$defaultFoto, null];
+    }
+
+    protected function pickSiswaPhotoValue($row): ?string
+    {
+        $row = $this->arr($row);
+
+        $candidates = [
+            $row['foto_src'] ?? null,
+            $row['preview_foto'] ?? null,
+            $row['foto_url'] ?? null,
+            data_get($row, 'siswa.foto_url'),
+            $row['photo_url'] ?? null,
+            data_get($row, 'siswa.photo_url'),
+            $row['avatar'] ?? null,
+            data_get($row, 'siswa.avatar'),
+            $row['foto'] ?? null,
+            data_get($row, 'siswa.foto'),
+            $row['foto_siswa'] ?? null,
+            data_get($row, 'siswa.foto_siswa'),
+            $row['photo'] ?? null,
+            data_get($row, 'siswa.photo'),
+            $row['gambar'] ?? null,
+            data_get($row, 'siswa.gambar'),
+            $row['image'] ?? null,
+            data_get($row, 'siswa.image'),
+        ];
+
+        foreach ($candidates as $value) {
+            if (is_scalar($value) && trim((string) $value) !== '' && trim((string) $value) !== '-') {
+                return trim((string) $value);
+            }
+        }
+
+        return null;
     }
 
     /* =========================================================

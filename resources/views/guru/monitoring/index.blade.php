@@ -26,6 +26,74 @@
         $namaGuru = $guru->nama ?? auth()->user()->name ?? '-';
         $nuptkGuru = $guru->nuptk ?? null;
         $nipGuru = $guru->nip ?? null;
+
+        $resolveSiswaFoto = function ($siswa) {
+            $candidateValues = [
+                data_get($siswa, 'foto_src'),
+                data_get($siswa, 'foto_url'),
+                data_get($siswa, 'photo_url'),
+                data_get($siswa, 'avatar'),
+                data_get($siswa, 'foto'),
+                data_get($siswa, 'foto_siswa'),
+                data_get($siswa, 'photo'),
+                data_get($siswa, 'gambar'),
+                data_get($siswa, 'image'),
+            ];
+
+            foreach ($candidateValues as $value) {
+                if (!is_scalar($value)) {
+                    continue;
+                }
+
+                $foto = trim((string) $value);
+
+                if ($foto === '' || $foto === '-') {
+                    continue;
+                }
+
+                if (preg_match('/^https?:\/\//i', $foto)) {
+                    return $foto;
+                }
+
+                $foto = str_replace('\\', '/', $foto);
+                $foto = preg_replace('#/+#', '/', $foto);
+                $foto = ltrim($foto, '/');
+
+                $basename = basename($foto);
+
+                $localCandidates = [
+                    $foto,
+                    'sia/' . $foto,
+                    'foto_siswa/' . $basename,
+                    'sia/foto_siswa/' . $basename,
+                    'storage/' . $foto,
+                    'storage/foto_siswa/' . $basename,
+                    'storage/sia/foto_siswa/' . $basename,
+                ];
+
+                foreach (array_unique(array_filter($localCandidates)) as $relativePath) {
+                    if (is_file(public_path($relativePath))) {
+                        return asset($relativePath);
+                    }
+                }
+
+                $siaPublicUrl = rtrim((string) (config('services.sia.public_url') ?: config('services.sia.base_url')), '/');
+
+                if ($siaPublicUrl !== '') {
+                    if (str_starts_with($foto, 'storage/')) {
+                        return $siaPublicUrl . '/' . $foto;
+                    }
+
+                    if (str_starts_with($foto, 'foto_siswa/')) {
+                        return $siaPublicUrl . '/storage/' . $foto;
+                    }
+
+                    return $siaPublicUrl . '/storage/foto_siswa/' . $basename;
+                }
+            }
+
+            return null;
+        };
     @endphp
 
     <div class="space-y-6">
@@ -258,6 +326,7 @@
                                 @endif
                             </div>
                         </div>
+
                         <div class="text-[11px] text-slate-400">
                             Klik detail siswa untuk melihat profil, nilai, kehadiran, dan ekskul.
                         </div>
@@ -330,51 +399,15 @@
                                                 ->take(2)
                                                 ->implode('');
 
+                                            if (trim((string) $inisial) === '') {
+                                                $inisial = 'S';
+                                            }
+
                                             $tahunRow = filled($s->tahun_ajaran ?? null) && ($s->tahun_ajaran ?? '-') !== '-'
                                                 ? $s->tahun_ajaran
                                                 : ($tahunAjaran ?? '-');
 
-                                            $fotoRaw = $s->foto
-                                                ?? $s->foto_siswa
-                                                ?? $s->photo
-                                                ?? $s->photo_url
-                                                ?? $s->foto_url
-                                                ?? $s->avatar
-                                                ?? null;
-
-                                            $fotoThumb = null;
-
-                                            if (!empty($fotoRaw)) {
-                                                $rawFoto = trim((string) $fotoRaw);
-
-                                                if (preg_match('/^https?:\/\//i', $rawFoto)) {
-                                                    $fotoThumb = $rawFoto;
-                                                } else {
-                                                    $rawFoto = str_replace('\\', '/', $rawFoto);
-                                                    $rawFoto = preg_replace('#/+#', '/', $rawFoto);
-                                                    $rawFoto = ltrim($rawFoto, '/');
-
-                                                    $basename = basename($rawFoto);
-
-                                                    $candidates = [
-                                                        $rawFoto,
-                                                        'foto_siswa/' . $basename,
-                                                        'sia/' . $rawFoto,
-                                                        'sia/foto_siswa/' . $basename,
-                                                        'storage/foto_siswa/' . $basename,
-                                                        'storage/sia/foto_siswa/' . $basename,
-                                                    ];
-
-                                                    $candidates = array_values(array_unique(array_filter($candidates)));
-
-                                                    foreach ($candidates as $relativePath) {
-                                                        if (is_file(public_path($relativePath))) {
-                                                            $fotoThumb = asset($relativePath);
-                                                            break;
-                                                        }
-                                                    }
-                                                }
-                                            }
+                                            $fotoThumb = $resolveSiswaFoto($s);
                                         @endphp
 
                                         <tr

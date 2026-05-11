@@ -47,24 +47,11 @@ class ProfilController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | 1. Cari foto guru di file lokal proyek SINTA
+        | 1. Prioritas utama: foto_url dari API SIA
         |--------------------------------------------------------------------------
-        | Ini penting karena foto guru dapat tersimpan di public/sia/foto_guru,
-        | bukan selalu berupa URL storage dari API SIA.
-        */
-        $localPath = $this->resolveGuruPhotoLocalPath($guruApi);
-
-        if ($localPath && file_exists($localPath) && is_file($localPath)) {
-            return response()->file($localPath, [
-                'Content-Type' => $this->guessMimeType($localPath),
-                'Cache-Control' => 'public, max-age=3600',
-            ]);
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | 2. Jika tidak ada file lokal, coba ambil dari URL/API SIA
-        |--------------------------------------------------------------------------
+        | Jika SIA sudah mengirim foto_url seperti:
+        | https://sia.smadatemanggung.my.id/storage/foto_guru/namafile.jpg
+        | maka route ini dapat mengambil gambar langsung dari URL tersebut.
         */
         $fotoUrl = $this->resolveGuruPhotoUrl($guruApi);
 
@@ -82,6 +69,23 @@ class ProfilController extends Controller
             } catch (\Throwable $e) {
                 report($e);
             }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | 2. Fallback: cari foto guru di file lokal proyek SINTA
+        |--------------------------------------------------------------------------
+        | Bagian ini tetap dipertahankan agar fungsi lama tidak rusak jika sebelumnya
+        | foto guru pernah disimpan di public/sia/foto_guru, public/foto_guru,
+        | public/storage/foto_guru, atau folder lokal lain.
+        */
+        $localPath = $this->resolveGuruPhotoLocalPath($guruApi);
+
+        if ($localPath && file_exists($localPath) && is_file($localPath)) {
+            return response()->file($localPath, [
+                'Content-Type' => $this->guessMimeType($localPath),
+                'Cache-Control' => 'public, max-age=3600',
+            ]);
         }
 
         /*
@@ -110,7 +114,7 @@ class ProfilController extends Controller
                 $resp = $this->sia->getGuruByKey($lookupKey);
 
                 if ($this->responseOk($resp) && !empty($resp['data']) && is_array($resp['data'])) {
-                    return $resp['data'];
+                    return $this->normalizeGuruProfile($resp['data']);
                 }
             }
 
@@ -124,13 +128,13 @@ class ProfilController extends Controller
 
                 if (!empty($resp['data']) && is_array($resp['data'])) {
                     foreach ($resp['data'] as $row) {
-                        if (is_array($row) && ($row['email'] ?? null) === $user->email) {
-                            return $row;
+                        if (is_array($row) && strtolower((string) ($row['email'] ?? '')) === strtolower((string) $user->email)) {
+                            return $this->normalizeGuruProfile($row);
                         }
                     }
 
                     if (!empty($resp['data'][0]) && is_array($resp['data'][0])) {
-                        return $resp['data'][0];
+                        return $this->normalizeGuruProfile($resp['data'][0]);
                     }
                 }
             }
@@ -145,13 +149,13 @@ class ProfilController extends Controller
 
                 if (!empty($resp['data']) && is_array($resp['data'])) {
                     foreach ($resp['data'] as $row) {
-                        if (is_array($row) && ($row['nama'] ?? null) === $user->name) {
-                            return $row;
+                        if (is_array($row) && $this->normalizeName($row['nama'] ?? '') === $this->normalizeName($user->name)) {
+                            return $this->normalizeGuruProfile($row);
                         }
                     }
 
                     if (!empty($resp['data'][0]) && is_array($resp['data'][0])) {
-                        return $resp['data'][0];
+                        return $this->normalizeGuruProfile($resp['data'][0]);
                     }
                 }
             }
@@ -160,6 +164,24 @@ class ProfilController extends Controller
         }
 
         return null;
+    }
+
+    private function normalizeGuruProfile(array $guru): array
+    {
+        /*
+        |--------------------------------------------------------------------------
+        | Normalisasi foto
+        |--------------------------------------------------------------------------
+        | Bagian ini tidak menghapus field asli dari API SIA.
+        | Tujuannya hanya memastikan view dapat membaca foto_url secara konsisten.
+        */
+        $fotoUrl = $this->resolveGuruPhotoUrl($guru);
+
+        if ($fotoUrl) {
+            $guru['foto_url'] = $fotoUrl;
+        }
+
+        return $guru;
     }
 
     private function resolveGuruPhotoLocalPath(array $guru): ?string
@@ -248,7 +270,7 @@ class ProfilController extends Controller
             }
         }
 
-        foreach ($candidates as $path) {
+        foreach (array_unique(array_filter($candidates)) as $path) {
             if ($path && file_exists($path) && is_file($path)) {
                 return $path;
             }
@@ -259,18 +281,43 @@ class ProfilController extends Controller
 
     private function resolveGuruPhotoUrl(array $guru): ?string
     {
+        /*
+        |--------------------------------------------------------------------------
+        | Prioritas 1: URL foto eksplisit dari API SIA
+        |--------------------------------------------------------------------------
+        */
         $fotoUrl = $this->pickString(
             $guru['foto_url'] ?? null,
             $guru['photo_url'] ?? null,
             $guru['url_foto'] ?? null,
+            $guru['avatar_url'] ?? null,
             data_get($guru, 'profil.foto_url'),
-            data_get($guru, 'detail.foto_url')
+            data_get($guru, 'detail.foto_url'),
+            data_get($guru, 'profil.photo_url'),
+            data_get($guru, 'detail.photo_url')
         );
 
-        if ($fotoUrl && filter_var($fotoUrl, FILTER_VALIDATE_URL)) {
-            return $fotoUrl;
+        if ($fotoUrl) {
+            $fotoUrl = trim((string) $fotoUrl);
+
+            if (filter_var($fotoUrl, FILTER_VALIDATE_URL)) {
+                return $fotoUrl;
+            }
+
+            $fotoUrl = $this->normalizeRelativePhotoPath($fotoUrl);
+
+            $publicUrl = $this->siaPublicUrl();
+
+            if ($publicUrl !== '') {
+                return $publicUrl . '/' . $fotoUrl;
+            }
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | Prioritas 2: field path/nama file foto
+        |--------------------------------------------------------------------------
+        */
         $foto = $this->pickString(
             $guru['foto'] ?? null,
             $guru['photo'] ?? null,
@@ -279,7 +326,9 @@ class ProfilController extends Controller
             $guru['path_foto'] ?? null,
             $guru['avatar'] ?? null,
             data_get($guru, 'profil.foto'),
-            data_get($guru, 'detail.foto')
+            data_get($guru, 'detail.foto'),
+            data_get($guru, 'profil.photo'),
+            data_get($guru, 'detail.photo')
         );
 
         if (!$foto) {
@@ -287,30 +336,74 @@ class ProfilController extends Controller
         }
 
         $foto = trim((string) $foto);
-        $foto = str_replace('\\', '/', $foto);
-        $foto = preg_replace('#/+#', '/', $foto);
-        $foto = ltrim($foto, '/');
+
+        if ($foto === '' || $foto === '-') {
+            return null;
+        }
 
         if (filter_var($foto, FILTER_VALIDATE_URL)) {
             return $foto;
         }
 
-        $baseUrl = rtrim((string) config('services.sia.base_url'), '/');
+        $foto = $this->normalizeRelativePhotoPath($foto);
 
-        if ($baseUrl === '') {
+        $publicUrl = $this->siaPublicUrl();
+
+        if ($publicUrl === '') {
             return null;
         }
 
         /*
         |--------------------------------------------------------------------------
-        | Beberapa kemungkinan URL storage SIA
+        | Jika field foto sudah berbentuk storage/...
         |--------------------------------------------------------------------------
         */
-        if (Str::startsWith($foto, ['storage/', 'uploads/', 'foto_guru/', 'guru/'])) {
-            return $baseUrl . '/' . $foto;
+        if (Str::startsWith($foto, 'storage/')) {
+            return $publicUrl . '/' . $foto;
         }
 
-        return $baseUrl . '/storage/' . $foto;
+        /*
+        |--------------------------------------------------------------------------
+        | Jika field foto sudah berbentuk foto_guru/...
+        |--------------------------------------------------------------------------
+        */
+        if (Str::startsWith($foto, 'foto_guru/')) {
+            return $publicUrl . '/storage/' . $foto;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Jika field foto berisi uploads/... atau guru/...
+        |--------------------------------------------------------------------------
+        | Tetap diarahkan ke public URL SIA tanpa mengubah struktur path.
+        */
+        if (Str::startsWith($foto, ['uploads/', 'guru/'])) {
+            return $publicUrl . '/' . $foto;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Jika field foto hanya berisi nama file
+        |--------------------------------------------------------------------------
+        */
+        $basename = basename($foto);
+
+        return $publicUrl . '/storage/foto_guru/' . $basename;
+    }
+
+    private function normalizeRelativePhotoPath(string $path): string
+    {
+        $path = trim($path);
+        $path = str_replace('\\', '/', $path);
+        $path = preg_replace('#/+#', '/', $path);
+        $path = ltrim($path, '/');
+
+        return $path;
+    }
+
+    private function siaPublicUrl(): string
+    {
+        return rtrim((string) (config('services.sia.public_url') ?: config('services.sia.base_url')), '/');
     }
 
     private function responseOk($response): bool
@@ -336,6 +429,14 @@ class ProfilController extends Controller
         }
 
         return null;
+    }
+
+    private function normalizeName(?string $name): string
+    {
+        $name = strtolower(trim((string) $name));
+        $name = preg_replace('/\s+/', ' ', $name);
+
+        return $name ?: '';
     }
 
     private function guessMimeType(string $path): string

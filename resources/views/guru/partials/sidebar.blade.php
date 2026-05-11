@@ -7,7 +7,7 @@
     $u = auth()->user();
     $role = strtolower((string) ($u?->role ?? 'walkel'));
 
-    $guruApi = isset($guruApi) && is_array($guruApi) ? (object) $guruApi : null;
+    $guruApi = isset($guruApi) && is_array($guruApi) ? (object) $guruApi : ($guruApi ?? null);
 
     if (!$guruApi && $u && !empty($u->sia_user_id)) {
         try {
@@ -45,18 +45,91 @@
         ? asset('images/default-user.png')
         : asset('images/default-siswa.png');
 
-    /*
-    |--------------------------------------------------------------------------
-    | Foto guru
-    |--------------------------------------------------------------------------
-    | Foto tetap lewat route guru.profil.photo.
-    | Query v ditambahkan agar cache tidak membuat foto akun sebelumnya tetap tampil.
-    */
-    $fotoVersion = md5((string) ($u?->sia_user_id ?? '') . '|' . (string) ($u?->id ?? '') . '|' . (string) ($u?->updated_at ?? ''));
+    $resolveGuruFoto = function ($guru = null) use ($defaultFoto, $u) {
+        $candidateValues = [
+            data_get($guru, 'foto_url'),
+            data_get($guru, 'photo_url'),
+            data_get($guru, 'avatar'),
+            data_get($guru, 'foto'),
+            data_get($guru, 'photo'),
+            data_get($guru, 'gambar'),
+            data_get($guru, 'image'),
+        ];
 
-    $fotoPath = RouteFacade::has('guru.profil.photo')
-        ? route('guru.profil.photo', ['v' => $fotoVersion])
-        : $defaultFoto;
+        foreach ($candidateValues as $value) {
+            if (!is_scalar($value)) {
+                continue;
+            }
+
+            $foto = trim((string) $value);
+
+            if ($foto === '' || $foto === '-') {
+                continue;
+            }
+
+            if (preg_match('/^https?:\/\//i', $foto)) {
+                $version = md5(
+                    (string) ($u?->sia_user_id ?? '') . '|' .
+                    (string) ($u?->id ?? '') . '|' .
+                    (string) ($u?->updated_at ?? '') . '|' .
+                    (string) data_get($guru, 'updated_at', '') . '|' .
+                    $foto
+                );
+
+                return $foto . (str_contains($foto, '?') ? '&' : '?') . 'v=' . $version;
+            }
+
+            $foto = str_replace('\\', '/', $foto);
+            $foto = preg_replace('#/+#', '/', $foto);
+            $foto = ltrim($foto, '/');
+
+            $basename = basename($foto);
+
+            $localCandidates = [
+                $foto,
+                'foto_guru/' . $basename,
+                'sia/' . $foto,
+                'sia/foto_guru/' . $basename,
+                'storage/' . $foto,
+                'storage/foto_guru/' . $basename,
+                'storage/sia/foto_guru/' . $basename,
+            ];
+
+            foreach (array_unique(array_filter($localCandidates)) as $relativePath) {
+                if (is_file(public_path($relativePath))) {
+                    return asset($relativePath);
+                }
+            }
+
+            $siaPublicUrl = rtrim((string) (config('services.sia.public_url') ?: config('services.sia.base_url')), '/');
+
+            if ($siaPublicUrl !== '') {
+                if (str_starts_with($foto, 'storage/')) {
+                    return $siaPublicUrl . '/' . $foto;
+                }
+
+                if (str_starts_with($foto, 'foto_guru/')) {
+                    return $siaPublicUrl . '/storage/' . $foto;
+                }
+
+                return $siaPublicUrl . '/storage/foto_guru/' . $basename;
+            }
+        }
+
+        if (RouteFacade::has('guru.profil.photo')) {
+            $fotoVersion = md5(
+                (string) ($u?->sia_user_id ?? '') . '|' .
+                (string) ($u?->id ?? '') . '|' .
+                (string) ($u?->updated_at ?? '')
+            );
+
+            return route('guru.profil.photo', ['v' => $fotoVersion]);
+        }
+
+        return $defaultFoto;
+    };
+
+    $fotoPath = $resolveGuruFoto($guruApi);
 
     $singleItemsTop = [
         [
@@ -115,8 +188,9 @@
             <div class="flex flex-col items-center text-center">
                 <div
                     class="flex h-24 w-24 items-center justify-center overflow-hidden rounded-[1.75rem] border-2 border-sky-500 bg-white shadow-[0_10px_24px_rgba(59,130,246,0.12)]">
-                    <img src="{{ $fotoPath }}" alt="Foto {{ $displayName }}" class="h-full w-full object-cover"
-                        loading="lazy" onerror="this.onerror=null;this.src='{{ $defaultFoto }}';">
+                    <img src="{{ $fotoPath }}" alt="Foto {{ $displayName }}"
+                        class="h-full w-full object-cover object-top" loading="lazy"
+                        onerror="this.onerror=null;this.src='{{ $defaultFoto }}';">
                 </div>
 
                 <div class="mt-3 min-w-0">
@@ -180,18 +254,18 @@
                     @endphp
 
                     <li x-data="{
-                                        open: {{ $groupActive ? 'true' : 'false' }},
-                                        toggle() {
-                                            this.open = !this.open;
-                                            try { localStorage.setItem('{{ $persistKey }}', this.open ? '1' : '0'); } catch(e) {}
-                                        }
-                                    }" x-init="(() => {
-                                        try {
-                                            const v = localStorage.getItem('{{ $persistKey }}');
-                                            if (v === '1' || v === '0') open = (v === '1');
-                                            @if ($groupActive) open = true; @endif
-                                        } catch(e) {}
-                                    })()">
+                                            open: {{ $groupActive ? 'true' : 'false' }},
+                                            toggle() {
+                                                this.open = !this.open;
+                                                try { localStorage.setItem('{{ $persistKey }}', this.open ? '1' : '0'); } catch(e) {}
+                                            }
+                                        }" x-init="(() => {
+                                            try {
+                                                const v = localStorage.getItem('{{ $persistKey }}');
+                                                if (v === '1' || v === '0') open = (v === '1');
+                                                @if ($groupActive) open = true; @endif
+                                            } catch(e) {}
+                                        })()">
                         <button type="button" @click="toggle()"
                             class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-slate-700 transition hover:bg-slate-50">
                             <div class="flex min-w-0 items-center gap-3">
