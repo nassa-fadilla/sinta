@@ -32,14 +32,6 @@ class PengumumanController extends Controller
         $jenis = trim((string) $request->query('jenis', ''));
         $status = trim((string) $request->query('status', ''));
 
-        /*
-        |--------------------------------------------------------------------------
-        | Pagination
-        |--------------------------------------------------------------------------
-        | Jumlah data per halaman dibuat tetap 10 agar tampilan daftar pengumuman
-        | lebih rapi dan konsisten. Query string tetap dipertahankan agar filter,
-        | pencarian, jenis, dan status tidak hilang saat berpindah halaman.
-        */
         $perPage = 10;
 
         $items = Pengumuman::with(['author', 'approver'])
@@ -249,6 +241,7 @@ class PengumumanController extends Controller
         return response()->file($fullPath, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'inline; filename="pengumuman-' . $pengumuman->id . '.pdf"',
+            'Cache-Control' => 'public, max-age=3600',
         ]);
     }
 
@@ -275,10 +268,6 @@ class PengumumanController extends Controller
         if (($pengumuman->status ?? null) !== 'approved') {
             abort(403, 'PDF hanya tersedia untuk pengumuman yang sudah disetujui.');
         }
-
-        if (empty($pengumuman->pdf_path)) {
-            abort(404, 'PDF belum tersedia.');
-        }
     }
 
     /**
@@ -295,8 +284,16 @@ class PengumumanController extends Controller
         $pdfPath = preg_replace('#/+#', '/', $pdfPath);
         $pdfPath = ltrim($pdfPath, '/');
 
+        if (str_starts_with($pdfPath, 'public/storage/')) {
+            $pdfPath = substr($pdfPath, strlen('public/storage/'));
+        }
+
+        if (str_starts_with($pdfPath, 'storage/app/public/')) {
+            $pdfPath = substr($pdfPath, strlen('storage/app/public/'));
+        }
+
         if (str_starts_with($pdfPath, 'storage/')) {
-            $pdfPath = substr($pdfPath, 8);
+            $pdfPath = substr($pdfPath, strlen('storage/'));
         }
 
         return $pdfPath !== '' ? $pdfPath : null;
@@ -304,14 +301,27 @@ class PengumumanController extends Controller
 
     /**
      * RESOLVE PDF PATH
+     *
+     * Jika pengumuman sudah approved tetapi pdf_path kosong atau file PDF hilang,
+     * PDF akan dibuat ulang otomatis agar tidak memunculkan 404.
      */
     private function resolvePdfPath(Pengumuman $pengumuman): string
     {
         $pdfPath = $this->normalizePdfPath($pengumuman->pdf_path);
 
-        if (!$pdfPath) {
-            abort(404, 'PDF belum tersedia.');
+        if ($pdfPath && Storage::disk('public')->exists($pdfPath)) {
+            return $pdfPath;
         }
+
+        if (($pengumuman->status ?? null) !== 'approved') {
+            abort(403, 'PDF hanya tersedia untuk pengumuman yang sudah disetujui.');
+        }
+
+        $pdfPath = $this->generateOfficialPdf($pengumuman);
+
+        $pengumuman->forceFill([
+            'pdf_path' => $pdfPath,
+        ])->save();
 
         if (!Storage::disk('public')->exists($pdfPath)) {
             abort(404, 'File PDF tidak ditemukan.');
@@ -325,17 +335,33 @@ class PengumumanController extends Controller
      */
     private function generateOfficialPdf(Pengumuman $item): string
     {
-        $pdf = Pdf::loadView('pdf.pengumuman_resmi', [
-            'item' => $item->load('author', 'approver'),
-            'capPath' => public_path('images/cap-sma2.png'),
-            'ttdPath' => public_path('images/ttd-kepsek.png'),
-        ])->setPaper('A4', 'portrait');
+        $item->loadMissing(['author', 'approver']);
 
         $path = 'pengumuman/pdf/pengumuman_' . $item->id . '.pdf';
+
+        Storage::disk('public')->makeDirectory('pengumuman/pdf');
+
+        $pdf = Pdf::loadView('pdf.pengumuman_resmi', [
+            'item' => $item,
+            'capPath' => $this->publicImagePath('images/cap-sma2.png'),
+            'ttdPath' => $this->publicImagePath('images/ttd-kepsek.png'),
+        ])->setPaper('A4', 'portrait');
 
         Storage::disk('public')->put($path, $pdf->output());
 
         return $path;
+    }
+
+    /**
+     * PATH GAMBAR UNTUK PDF
+     *
+     * Menghindari error apabila file cap atau tanda tangan belum tersedia.
+     */
+    private function publicImagePath(string $relativePath): ?string
+    {
+        $path = public_path($relativePath);
+
+        return is_file($path) ? $path : null;
     }
 
     /**
