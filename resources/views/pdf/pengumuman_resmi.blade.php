@@ -4,176 +4,244 @@
 <head>
     <meta charset="UTF-8">
     <title>Pengumuman Resmi</title>
+
     <style>
+        @page {
+            margin: 35px 48px 38px 48px;
+        }
+
         body {
             font-family: DejaVu Sans, sans-serif;
             font-size: 11.5px;
-            line-height: 1.65;
-            margin: 42px 54px;
+            line-height: 1.55;
             color: #111827;
-        }
-
-        .kop {
-            border-bottom: 2px solid #111827;
-            padding-bottom: 12px;
-            margin-bottom: 22px;
-            overflow: hidden;
-        }
-
-        .kop img.logo {
-            float: left;
-            width: 72px;
-            height: auto;
-            display: block;
-            margin-top: 2px;
-        }
-
-        .kop .text {
-            margin-left: 90px;
-            text-align: center;
-            padding-top: 2px;
-        }
-
-        .kop .text h4 {
             margin: 0;
-            font-size: 12.5px;
-            font-weight: bold;
         }
 
-        .kop .text h2 {
-            margin: 2px 0;
-            font-size: 18px;
-            font-weight: bold;
-            letter-spacing: 0.3px;
+        /*
+        |--------------------------------------------------------------------------
+        | KOP SURAT
+        |--------------------------------------------------------------------------
+        */
+        .kop {
+            width: 100%;
+            border-bottom: 2px solid #111827;
+            padding-bottom: 10px;
+            margin-bottom: 18px;
         }
 
-        .kop .text h3 {
-            margin: 2px 0;
-            font-size: 13px;
-            font-weight: bold;
-        }
-
-        .kop .text p {
-            margin: 2px 0 0;
-            font-size: 10.5px;
-        }
-
-        .judul-wrap {
-            text-align: center;
-            margin: 18px 0 20px;
-        }
-
-        .judul-wrap .judul {
-            font-size: 15px;
-            font-weight: bold;
-            text-decoration: underline;
-            margin-bottom: 4px;
-        }
-
-        .judul-wrap .sub {
-            font-size: 10.5px;
-            color: #4b5563;
-        }
-
-        .meta-box {
-            border: 1px solid #d1d5db;
-            background: #f8fafc;
-            border-radius: 8px;
-            padding: 12px 14px;
-            margin-bottom: 16px;
-        }
-
-        .meta {
+        .kop-table {
             width: 100%;
             border-collapse: collapse;
         }
 
-        .meta td {
-            padding: 3px 0;
+        .kop-logo {
+            width: 92px;
             vertical-align: top;
+            text-align: center;
         }
 
-        .meta td.label {
-            width: 120px;
+        .kop-logo img {
+            width: 72px;
+            height: auto;
+            display: block;
+            margin: 0 auto;
+        }
+
+        .kop-text {
+            text-align: center;
+            vertical-align: top;
+            padding-right: 92px;
+        }
+
+        .kop-text .provinsi {
+            margin: 0;
+            font-size: 13px;
             font-weight: bold;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
         }
 
-        .meta td.sep {
-            width: 10px;
-        }
-
-        .isi-title {
-            font-size: 12px;
+        .kop-text .sekolah {
+            margin: 3px 0 0;
+            font-size: 19px;
             font-weight: bold;
-            margin: 0 0 8px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
         }
 
-        .box-isi {
-            border: 1px solid #d1d5db;
-            background: #ffffff;
-            padding: 16px 18px;
-            border-radius: 8px;
+        .kop-text .jenis {
+            margin: 4px 0 0;
+            font-size: 13px;
+            font-weight: bold;
+            letter-spacing: 0.3px;
+            text-transform: uppercase;
+        }
+
+        .kop-text .alamat {
+            margin: 4px 0 0;
+            font-size: 10.5px;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | JUDUL DOKUMEN
+        |--------------------------------------------------------------------------
+        */
+        .judul-surat {
+            text-align: center;
+            margin: 18px 0 18px;
+        }
+
+        .judul-surat .judul {
+            display: inline-block;
+            font-size: 14px;
+            font-weight: bold;
+            text-transform: uppercase;
+            text-decoration: underline;
+            letter-spacing: 0.6px;
+            margin: 0;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | META INFORMASI
+        |--------------------------------------------------------------------------
+        */
+        .meta {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0 0 18px;
+        }
+
+        .meta td {
+            vertical-align: top;
+            padding: 2px 0;
+            font-size: 11.5px;
+        }
+
+        .meta .label {
+            width: 105px;
+        }
+
+        .meta .sep {
+            width: 12px;
+            text-align: center;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | ISI PENGUMUMAN
+        |--------------------------------------------------------------------------
+        */
+        .isi {
+            text-align: justify;
+            font-size: 11.5px;
+            line-height: 1.75;
+            margin-top: 8px;
+        }
+
+        .isi p {
+            margin: 0 0 10px;
             text-align: justify;
         }
 
-        .box-isi p {
-            margin: 0 0 10px;
+        .isi .paragraf {
+            text-align: justify;
+            white-space: pre-line;
         }
 
-        .ttd {
+        /*
+        |--------------------------------------------------------------------------
+        | TANDA TANGAN
+        |--------------------------------------------------------------------------
+        */
+        .ttd-wrap {
+            width: 100%;
+            margin-top: 34px;
+        }
+
+        .ttd-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .ttd-left {
+            width: 55%;
+            vertical-align: top;
+        }
+
+        .ttd-right {
+            width: 45%;
+            vertical-align: top;
+            text-align: left;
             position: relative;
-            margin-top: 38px;
-            text-align: right;
-            height: 205px;
         }
 
-        .ttd .tanggal {
-            margin-right: 10px;
-            margin-bottom: 4px;
+        .ttd-block {
+            width: 250px;
+            margin-left: auto;
+            text-align: left;
+            position: relative;
+            min-height: 180px;
         }
 
-        .ttd .jabatan {
-            margin-right: 10px;
+        .ttd-tempat {
+            margin: 0 0 4px;
+        }
+
+        .ttd-jabatan {
+            margin: 0;
             font-weight: bold;
         }
 
-        .ttd img.cap {
+        .signature-area {
+            position: relative;
+            height: 105px;
+            margin-top: 4px;
+        }
+
+        .signature-area img.cap {
             position: absolute;
-            right: 82px;
-            top: 32px;
-            width: 112px;
-            opacity: 0.22;
+            left: 10px;
+            top: 2px;
+            width: 110px;
+            opacity: 0.34;
             z-index: 1;
         }
 
-        .ttd img.ttd {
+        .signature-area img.ttd-img {
             position: absolute;
-            right: 48px;
-            top: 50px;
-            width: 142px;
+            left: 35px;
+            top: 28px;
+            width: 145px;
             z-index: 2;
-            opacity: 0.92;
+            opacity: 0.96;
         }
 
-        .ttd .nama {
+        .ttd-nama {
+            margin: 6px 0 0;
             font-weight: bold;
             text-decoration: underline;
-            margin-right: 8px;
-            margin-top: 138px;
-            position: relative;
-            z-index: 3;
         }
 
-        .ttd .nip {
-            margin-right: 8px;
-            position: relative;
-            z-index: 3;
+        .ttd-nip {
+            margin: 2px 0 0;
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | FOOTER
+        |--------------------------------------------------------------------------
+        */
         .catatan {
-            margin-top: 8px;
-            font-size: 10px;
+            position: fixed;
+            bottom: -18px;
+            left: 0;
+            right: 0;
+            font-size: 9.5px;
             color: #6b7280;
+            text-align: center;
         }
     </style>
 </head>
@@ -181,76 +249,124 @@
 <body>
     @php
         \Carbon\Carbon::setLocale('id');
+
+        $tanggalTerbit = $item->publish_at
+            ? $item->publish_at->locale('id')->translatedFormat('d F Y')
+            : '-';
+
+        $tanggalBerlaku = $item->expire_at
+            ? $item->expire_at->locale('id')->translatedFormat('d F Y')
+            : null;
+
+        $tanggalTtd = \Carbon\Carbon::now('Asia/Jakarta')->locale('id')->translatedFormat('d F Y');
+
+        $namaKepsek = $item->approver->name ?? 'Teguh Prihantoro, S.Pd, M.Pd';
+        $nipKepsek = '19781231 200501 1 002';
+
+        $isiPengumuman = trim((string) ($item->isi ?? '-'));
+
+        $logoPath = public_path('images/logo-sma2.png');
+        $capPath = $capPath ?? public_path('images/cap-sma2.png');
+        $ttdPath = $ttdPath ?? public_path('images/ttd-kepsek.png');
     @endphp
 
     {{-- KOP SURAT --}}
     <div class="kop">
-        <img src="file://{{ public_path('images/logo-sma2.png') }}" class="logo" alt="Logo SMAN 2 Temanggung">
-
-        <div class="text">
-            <h4>PEMERINTAH PROVINSI JAWA TENGAH</h4>
-            <h2>SMAN 2 TEMANGGUNG</h2>
-            <h3>PENGUMUMAN RESMI SEKOLAH</h3>
-            <p>Jl. Jenderal Sudirman No.27, Temanggung, Jawa Tengah</p>
-        </div>
-    </div>
-
-    {{-- JUDUL --}}
-    <div class="judul-wrap">
-        <div class="judul">PENGUMUMAN RESMI</div>
-        <div class="sub">Dokumen ini diterbitkan melalui Sistem Informasi Monitoring Aktivitas Siswa (SINTA)</div>
-    </div>
-
-    {{-- META --}}
-    <div class="meta-box">
-        <table class="meta">
+        <table class="kop-table">
             <tr>
-                <td class="label">Judul</td>
-                <td class="sep">:</td>
-                <td>{{ $item->judul ?? '-' }}</td>
+                <td class="kop-logo">
+                    @if(is_file($logoPath))
+                        <img src="file://{{ $logoPath }}" alt="Logo SMAN 2 Temanggung">
+                    @endif
+                </td>
+                <td class="kop-text">
+                    <p class="provinsi">PEMERINTAH PROVINSI JAWA TENGAH</p>
+                    <p class="sekolah">SMA NEGERI 2 TEMANGGUNG</p>
+                    <p class="jenis">PENGUMUMAN RESMI SEKOLAH</p>
+                    <p class="alamat">Jl. Jenderal Sudirman No. 27, Temanggung, Jawa Tengah</p>
+                </td>
             </tr>
-            <tr>
-                <td class="label">Jenis</td>
-                <td class="sep">:</td>
-                <td>{{ ucfirst($item->jenis ?? 'Umum') }}</td>
-            </tr>
-            <tr>
-                <td class="label">Tanggal Terbit</td>
-                <td class="sep">:</td>
-                <td>{{ optional($item->publish_at)->translatedFormat('d F Y') ?? '-' }}</td>
-            </tr>
-            @if(!empty($item->expire_at))
-                <tr>
-                    <td class="label">Berlaku Sampai</td>
-                    <td class="sep">:</td>
-                    <td>{{ optional($item->expire_at)->translatedFormat('d F Y') ?? '-' }}</td>
-                </tr>
-            @endif
         </table>
     </div>
 
-    {{-- ISI --}}
-    <div class="isi-title">Isi Pengumuman</div>
-    <div class="box-isi">
-        {!! nl2br(e($item->isi ?? '-')) !!}
+    {{-- JUDUL --}}
+    <div class="judul-surat">
+        <p class="judul">PENGUMUMAN</p>
     </div>
 
-    {{-- TTD --}}
-    <div class="ttd">
-        <p class="tanggal">Temanggung,
-            {{ \Carbon\Carbon::now('Asia/Jakarta')->locale('id')->translatedFormat('d F Y') }}
+    {{-- META --}}
+    <table class="meta">
+        <tr>
+            <td class="label">Nomor</td>
+            <td class="sep">:</td>
+            <td>-</td>
+        </tr>
+        <tr>
+            <td class="label">Perihal</td>
+            <td class="sep">:</td>
+            <td>{{ $item->judul ?? '-' }}</td>
+        </tr>
+        <tr>
+            <td class="label">Jenis</td>
+            <td class="sep">:</td>
+            <td>{{ ucfirst($item->jenis ?? 'Umum') }}</td>
+        </tr>
+        <tr>
+            <td class="label">Tanggal Terbit</td>
+            <td class="sep">:</td>
+            <td>{{ $tanggalTerbit }}</td>
+        </tr>
+        @if($tanggalBerlaku)
+            <tr>
+                <td class="label">Berlaku Sampai</td>
+                <td class="sep">:</td>
+                <td>{{ $tanggalBerlaku }}</td>
+            </tr>
+        @endif
+    </table>
+
+    {{-- ISI PENGUMUMAN --}}
+    <div class="isi">
+        <p>Dengan hormat,</p>
+
+        <div class="paragraf">{!! nl2br(e($isiPengumuman)) !!}</div>
+
+        <p>
+            Demikian pengumuman ini disampaikan untuk menjadi perhatian dan dilaksanakan sebagaimana mestinya.
         </p>
-        <p class="jabatan">Kepala Sekolah</p>
+    </div>
 
-        <img src="file://{{ public_path('images/cap-sma2.png') }}" class="cap" alt="Cap SMAN 2 Temanggung">
-        <img src="file://{{ public_path('images/ttd-kepsek.png') }}" class="ttd" alt="Tanda Tangan Kepala Sekolah">
+    {{-- TANDA TANGAN --}}
+    <div class="ttd-wrap">
+        <table class="ttd-table">
+            <tr>
+                <td class="ttd-left"></td>
+                <td class="ttd-right">
+                    <div class="ttd-block">
+                        <p class="ttd-tempat">Temanggung, {{ $tanggalTtd }}</p>
+                        <p class="ttd-jabatan">Kepala Sekolah</p>
 
-        <p class="nama">{{ $item->approver->name ?? 'Teguh Prihantoro, S.Pd, M.Pd' }}</p>
-        <p class="nip">NIP. 19781231 200501 1 002</p>
+                        <div class="signature-area">
+                            @if(!empty($capPath) && is_file($capPath))
+                                <img src="file://{{ $capPath }}" class="cap" alt="Cap SMAN 2 Temanggung">
+                            @endif
+
+                            @if(!empty($ttdPath) && is_file($ttdPath))
+                                <img src="file://{{ $ttdPath }}" class="ttd-img" alt="Tanda Tangan Kepala Sekolah">
+                            @endif
+                        </div>
+
+                        <p class="ttd-nama">{{ $namaKepsek }}</p>
+                        <p class="ttd-nip">NIP. {{ $nipKepsek }}</p>
+                    </div>
+                </td>
+            </tr>
+        </table>
     </div>
 
     <div class="catatan">
-        Dokumen ini merupakan pengumuman resmi sekolah yang diarsipkan melalui SINTA.
+        Dokumen ini merupakan pengumuman resmi sekolah yang diarsipkan melalui Sistem Informasi Monitoring Aktivitas
+        Siswa (SINTA).
     </div>
 </body>
 
