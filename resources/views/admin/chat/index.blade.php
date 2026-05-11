@@ -2,6 +2,103 @@
 @section('title', 'Riwayat Chat Ortu')
 
 @section('content')
+  @php
+    $resolveSiswaFotoChat = function ($row) {
+      $candidateValues = [
+        data_get($row, 'foto_src'),
+        data_get($row, 'student_photo_url'),
+        data_get($row, 'student_photo'),
+        data_get($row, 'preview_foto'),
+        data_get($row, 'foto_url'),
+        data_get($row, 'photo_url'),
+        data_get($row, 'avatar'),
+        data_get($row, 'foto'),
+        data_get($row, 'foto_siswa'),
+        data_get($row, 'photo'),
+        data_get($row, 'gambar'),
+        data_get($row, 'image'),
+      ];
+
+      foreach ($candidateValues as $value) {
+        if (!is_scalar($value)) {
+          continue;
+        }
+
+        $foto = trim((string) $value);
+
+        if ($foto === '' || $foto === '-') {
+          continue;
+        }
+
+        if (preg_match('/^https?:\/\//i', $foto)) {
+          return $foto;
+        }
+
+        $foto = str_replace('\\', '/', $foto);
+        $foto = preg_replace('#/+#', '/', $foto);
+        $foto = ltrim($foto, '/');
+
+        if ($foto === '') {
+          continue;
+        }
+
+        $basename = basename($foto);
+
+        $localCandidates = [
+          $foto,
+          'sia/' . $foto,
+          'foto_siswa/' . $basename,
+          'sia/foto_siswa/' . $basename,
+          'storage/' . $foto,
+          'storage/foto_siswa/' . $basename,
+          'storage/sia/foto_siswa/' . $basename,
+        ];
+
+        foreach (array_unique(array_filter($localCandidates)) as $relativePath) {
+          if (is_file(public_path($relativePath))) {
+            return asset($relativePath);
+          }
+        }
+
+        $siaPublicUrl = rtrim((string) (config('services.sia.public_url') ?: config('services.sia.base_url')), '/');
+
+        if ($siaPublicUrl !== '') {
+          if (str_starts_with($foto, 'public/storage/')) {
+            $foto = preg_replace('#^public/#', '', $foto);
+            return $siaPublicUrl . '/' . $foto;
+          }
+
+          if (str_starts_with($foto, 'storage/')) {
+            return $siaPublicUrl . '/' . $foto;
+          }
+
+          if (str_starts_with($foto, 'foto_siswa/')) {
+            return $siaPublicUrl . '/storage/' . $foto;
+          }
+
+          if (str_starts_with($foto, 'uploads/') || str_starts_with($foto, 'siswa/')) {
+            return $siaPublicUrl . '/' . $foto;
+          }
+
+          return $siaPublicUrl . '/storage/foto_siswa/' . $basename;
+        }
+      }
+
+      return null;
+    };
+
+    $makeInitial = function ($name) {
+      $initial = \Illuminate\Support\Str::of($name ?? 'S')
+        ->trim()
+        ->explode(' ')
+        ->map(fn($p) => mb_substr($p, 0, 1))
+        ->take(2)
+        ->implode('');
+
+      return trim((string) $initial) !== '' ? $initial : 'S';
+    };
+  @endphp
+
   <div class="space-y-6">
     <section
       class="overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.08)] transition duration-300 hover:shadow-[0_24px_70px_rgba(15,23,42,0.10)]">
@@ -157,14 +254,8 @@
                       $isActive = $activeThread && (int) $activeThread->id === (int) $thread->id;
                       $unreadCount = (int) ($thread->unread_count ?? 0);
 
-                      $initial = \Illuminate\Support\Str::of($namaSiswa)
-                        ->trim()
-                        ->explode(' ')
-                        ->map(fn($p) => mb_substr($p, 0, 1))
-                        ->take(2)
-                        ->implode('');
-
-                      $studentPhoto = $thread->student_photo ?? null;
+                      $initial = $makeInitial($namaSiswa);
+                      $studentPhoto = $resolveSiswaFotoChat($thread);
 
                       $threadUrl = route('admin.chat.show', $thread->id);
                       if (!empty($q ?? '')) {
@@ -188,20 +279,14 @@
                       <a href="{{ $threadUrl }}"
                         class="group flex items-start gap-3 px-4 py-3 transition {{ $isActive ? 'bg-blue-50/70' : 'hover:bg-slate-50' }}">
 
-                        <div class="shrink-0">
+                        <div
+                          class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-blue-100 bg-blue-100 text-sm font-semibold text-blue-700 shadow-sm transition duration-300 group-hover:scale-[1.03] group-hover:border-blue-200">
                           @if($studentPhoto)
-                            <img src="{{ $studentPhoto }}" alt="{{ $namaSiswa }}"
-                              class="h-10 w-10 rounded-full object-cover ring-2 ring-blue-100 shadow-sm"
-                              onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                            <div
-                              class="hidden h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-blue-700 text-sm font-semibold shadow-sm">
-                              {{ $initial }}
-                            </div>
+                            <img src="{{ $studentPhoto }}" alt="Foto {{ $namaSiswa }}"
+                              class="h-full w-full object-cover object-top" loading="lazy"
+                              onerror="this.onerror=null; this.parentElement.innerHTML='<span>{{ $initial }}</span>'; ">
                           @else
-                            <div
-                              class="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-blue-700 text-sm font-semibold shadow-sm">
-                              {{ $initial }}
-                            </div>
+                            <span>{{ $initial }}</span>
                           @endif
                         </div>
 
@@ -254,34 +339,22 @@
                   default => ucfirst($status),
                 };
 
-                $activeInitial = \Illuminate\Support\Str::of($activeThread->student_name ?? 'Siswa')
-                  ->trim()
-                  ->explode(' ')
-                  ->map(fn($p) => mb_substr($p, 0, 1))
-                  ->take(2)
-                  ->implode('');
-
-                $activePhoto = $activeThread->student_photo ?? null;
+                $activeInitial = $makeInitial($activeThread->student_name ?? 'Siswa');
+                $activePhoto = $resolveSiswaFotoChat($activeThread);
               @endphp
 
               {{-- HEADER PERCAKAPAN --}}
               <div class="shrink-0 border-b border-slate-200 bg-white px-4 py-3 md:px-5">
                 <div class="flex items-start justify-between gap-3">
                   <div class="flex min-w-0 items-center gap-3">
-                    <div class="shrink-0">
+                    <div
+                      class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-blue-100 bg-blue-100 text-sm font-semibold text-blue-700 shadow-sm">
                       @if($activePhoto)
-                        <img src="{{ $activePhoto }}" alt="{{ $activeThread->student_name ?? 'Siswa' }}"
-                          class="h-10 w-10 rounded-full object-cover ring-2 ring-blue-100 shadow-sm"
-                          onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                        <div
-                          class="hidden h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-blue-700 text-sm font-semibold shadow-sm">
-                          {{ $activeInitial }}
-                        </div>
+                        <img src="{{ $activePhoto }}" alt="Foto {{ $activeThread->student_name ?? 'Siswa' }}"
+                          class="h-full w-full object-cover object-top" loading="lazy"
+                          onerror="this.onerror=null; this.parentElement.innerHTML='<span>{{ $activeInitial }}</span>'; ">
                       @else
-                        <div
-                          class="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-blue-700 text-sm font-semibold shadow-sm">
-                          {{ $activeInitial }}
-                        </div>
+                        <span>{{ $activeInitial }}</span>
                       @endif
                     </div>
 
@@ -511,23 +584,23 @@
           : '';
 
         return `
-            <div class="flex ${align} chat-message-item" data-message-id="${msg.id}">
-              <div class="max-w-[92%] sm:max-w-[85%] md:max-w-[76%]">
-                <div class="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                  <span>${escapeHtml(msg.who || '-')}</span>
-                  <span>•</span>
-                  <span>${escapeHtml(msg.channel || '-')}</span>
-                  <span>•</span>
-                  <span>${escapeHtml(msg.time || '-')}</span>
-                  ${statusBadge}
-                </div>
+              <div class="flex ${align} chat-message-item" data-message-id="${msg.id}">
+                <div class="max-w-[92%] sm:max-w-[85%] md:max-w-[76%]">
+                  <div class="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                    <span>${escapeHtml(msg.who || '-')}</span>
+                    <span>•</span>
+                    <span>${escapeHtml(msg.channel || '-')}</span>
+                    <span>•</span>
+                    <span>${escapeHtml(msg.time || '-')}</span>
+                    ${statusBadge}
+                  </div>
 
-                <div class="rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed sm:px-4 ${bubble}">
-                  ${nl2br(msg.body || '')}
+                  <div class="rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed sm:px-4 ${bubble}">
+                    ${nl2br(msg.body || '')}
+                  </div>
                 </div>
               </div>
-            </div>
-          `;
+            `;
       }
 
       async function fetchNewMessages() {
