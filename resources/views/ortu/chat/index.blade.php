@@ -2,6 +2,241 @@
 @section('title', 'Riwayat Chat')
 
 @section('content')
+  @php
+    use Illuminate\Support\Str;
+    use Illuminate\Support\Facades\Route as RouteFacade;
+
+    /*
+    |--------------------------------------------------------------------------
+    | Helper inisial
+    |--------------------------------------------------------------------------
+    */
+    $makeInitial = function ($name, $fallback = 'PS') {
+      $initial = Str::of($name ?? $fallback)
+        ->trim()
+        ->explode(' ')
+        ->map(fn($p) => mb_substr($p, 0, 1))
+        ->take(2)
+        ->implode('');
+
+      return trim((string) $initial) !== '' ? $initial : $fallback;
+    };
+
+    /*
+    |--------------------------------------------------------------------------
+    | Helper URL foto relatif/lokal
+    |--------------------------------------------------------------------------
+    */
+    $resolvePhotoUrl = function ($rawFoto, string $folder = 'foto_guru') {
+      if (!is_scalar($rawFoto)) {
+        return null;
+      }
+
+      $foto = trim((string) $rawFoto);
+
+      if ($foto === '' || $foto === '-') {
+        return null;
+      }
+
+      if (preg_match('/^https?:\/\//i', $foto)) {
+        return $foto;
+      }
+
+      $foto = str_replace('\\', '/', $foto);
+      $foto = preg_replace('#/+#', '/', $foto);
+      $foto = ltrim($foto, '/');
+
+      if ($foto === '') {
+        return null;
+      }
+
+      $basename = basename($foto);
+
+      $localCandidates = [
+        $foto,
+        'sia/' . $foto,
+        $folder . '/' . $basename,
+        'sia/' . $folder . '/' . $basename,
+        'storage/' . $foto,
+        'storage/' . $folder . '/' . $basename,
+        'storage/sia/' . $folder . '/' . $basename,
+      ];
+
+      foreach (array_unique(array_filter($localCandidates)) as $relativePath) {
+        if (is_file(public_path($relativePath))) {
+          return asset($relativePath);
+        }
+      }
+
+      $siaPublicUrl = rtrim((string) (config('services.sia.public_url') ?: config('services.sia.base_url')), '/');
+
+      if ($siaPublicUrl !== '') {
+        if (str_starts_with($foto, 'public/storage/')) {
+          $foto = preg_replace('#^public/#', '', $foto);
+          return $siaPublicUrl . '/' . $foto;
+        }
+
+        if (str_starts_with($foto, 'storage/')) {
+          return $siaPublicUrl . '/' . $foto;
+        }
+
+        if (str_starts_with($foto, $folder . '/')) {
+          return $siaPublicUrl . '/storage/' . $foto;
+        }
+
+        if (str_starts_with($foto, ['uploads/', 'guru/', 'siswa/'])) {
+          return $siaPublicUrl . '/' . $foto;
+        }
+
+        return $siaPublicUrl . '/storage/' . $folder . '/' . $basename;
+      }
+
+      return null;
+    };
+
+    /*
+    |--------------------------------------------------------------------------
+    | Foto siswa untuk panel identitas siswa
+    |--------------------------------------------------------------------------
+    */
+    $resolveSiswaPhoto = function ($row) use ($resolvePhotoUrl) {
+      $candidates = [
+        data_get($row, 'foto_src'),
+        data_get($row, 'student_photo_url'),
+        data_get($row, 'student_photo'),
+        data_get($row, 'preview_foto'),
+        data_get($row, 'foto_url'),
+        data_get($row, 'photo_url'),
+        data_get($row, 'avatar'),
+        data_get($row, 'foto'),
+        data_get($row, 'foto_siswa'),
+        data_get($row, 'photo'),
+        data_get($row, 'gambar'),
+        data_get($row, 'image'),
+      ];
+
+      foreach ($candidates as $value) {
+        $url = $resolvePhotoUrl($value, 'foto_siswa');
+
+        if ($url) {
+          return $url;
+        }
+      }
+
+      return null;
+    };
+
+    /*
+    |--------------------------------------------------------------------------
+    | Foto pengguna tujuan chat
+    |--------------------------------------------------------------------------
+    | Untuk role walkel/guru, data foto diambil dari API SIA berdasarkan sia_user_id.
+    | Dengan begitu PP tujuan chat orang tua menampilkan foto_guru, bukan foto_siswa.
+    */
+    $resolveAssigneePhoto = function ($assignee) use ($resolvePhotoUrl) {
+      if (!$assignee) {
+        return null;
+      }
+
+      $role = strtolower((string) ($assignee->role ?? ''));
+
+      if ($role === 'admin') {
+        $localAdminPhoto = data_get($assignee, 'foto')
+          ?? data_get($assignee, 'photo')
+          ?? data_get($assignee, 'avatar')
+          ?? data_get($assignee, 'foto_url')
+          ?? data_get($assignee, 'photo_url');
+
+        $adminPhoto = $resolvePhotoUrl($localAdminPhoto, 'foto_guru');
+
+        if ($adminPhoto) {
+          return $adminPhoto;
+        }
+
+        return file_exists(public_path('images/default-user.png'))
+          ? asset('images/default-user.png')
+          : asset('images/logo-sma2.png');
+      }
+
+      if (!in_array($role, ['walkel', 'guru'], true)) {
+        return file_exists(public_path('images/default-user.png'))
+          ? asset('images/default-user.png')
+          : asset('images/logo-sma2.png');
+      }
+
+      static $guruPhotoCache = [];
+
+      $lookupKey = trim((string) ($assignee->sia_user_id ?? ''));
+
+      if ($lookupKey === '') {
+        return file_exists(public_path('images/default-user.png'))
+          ? asset('images/default-user.png')
+          : asset('images/logo-sma2.png');
+      }
+
+      if (array_key_exists($lookupKey, $guruPhotoCache)) {
+        return $guruPhotoCache[$lookupKey];
+      }
+
+      $guruData = null;
+
+      try {
+        /** @var \App\Services\SiaClient $sia */
+        $sia = app(\App\Services\SiaClient::class);
+
+        $resp = $sia->getGuruByKey($lookupKey);
+
+        if (
+          is_array($resp)
+          && (($resp['status'] ?? null) === true || ($resp['success'] ?? null) === true || ($resp['status'] ?? null) === 'success')
+          && !empty($resp['data'])
+          && is_array($resp['data'])
+        ) {
+          $guruData = $resp['data'];
+        }
+      } catch (\Throwable $e) {
+        report($e);
+      }
+
+      $candidates = [
+        data_get($guruData, 'foto_url'),
+        data_get($guruData, 'photo_url'),
+        data_get($guruData, 'url_foto'),
+        data_get($guruData, 'avatar_url'),
+        data_get($guruData, 'foto'),
+        data_get($guruData, 'photo'),
+        data_get($guruData, 'foto_guru'),
+        data_get($guruData, 'foto_path'),
+        data_get($guruData, 'path_foto'),
+        data_get($guruData, 'avatar'),
+        data_get($guruData, 'profil.foto_url'),
+        data_get($guruData, 'profil.foto'),
+        data_get($guruData, 'detail.foto_url'),
+        data_get($guruData, 'detail.foto'),
+      ];
+
+      foreach ($candidates as $value) {
+        $url = $resolvePhotoUrl($value, 'foto_guru');
+
+        if ($url) {
+          $guruPhotoCache[$lookupKey] = $url;
+          return $url;
+        }
+      }
+
+      $fallback = file_exists(public_path('images/default-user.png'))
+        ? asset('images/default-user.png')
+        : asset('images/logo-sma2.png');
+
+      $guruPhotoCache[$lookupKey] = $fallback;
+
+      return $fallback;
+    };
+
+    $sidebarSiswaPhoto = $resolveSiswaPhoto($sidebarSiswa ?? []);
+    $sidebarSiswaInitial = $makeInitial(data_get($sidebarSiswa ?? [], 'nama', 'Siswa'), 'S');
+  @endphp
+
   <div class="space-y-6">
     <section
       class="overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.08)] transition duration-300 hover:shadow-[0_24px_70px_rgba(15,23,42,0.10)]">
@@ -26,6 +261,7 @@
               <p class="mt-1 text-sm text-slate-500">
                 Lihat riwayat percakapan Anda dengan pihak sekolah.
               </p>
+
               @if($siswa)
                 <p class="mt-1 text-xs text-slate-400">
                   Siswa:
@@ -54,8 +290,7 @@
                   autocomplete="off" />
 
                 <span id="searchLoader" class="hidden">
-                  <div class="h-4 w-4 animate-spin rounded-full border-2 border-blue-500 border-t-transparent">
-                  </div>
+                  <div class="h-4 w-4 animate-spin rounded-full border-2 border-blue-500 border-t-transparent"></div>
                 </span>
               </div>
             </form>
@@ -100,6 +335,36 @@
           {{-- SIDEBAR KIRI --}}
           <aside
             class="flex w-full shrink-0 flex-col overflow-hidden border-b border-slate-200 bg-white md:h-full md:w-[310px] md:border-b-0 md:border-r lg:w-[340px]">
+
+            {{-- Profil siswa ringkas --}}
+            @if(!empty($sidebarSiswa))
+              <div class="border-b border-slate-100 bg-blue-50/40 px-4 py-4">
+                <div class="flex items-center gap-3">
+                  <div
+                    class="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-blue-100 bg-white text-sm font-semibold text-blue-700 shadow-sm">
+                    @if($sidebarSiswaPhoto)
+                      <img src="{{ $sidebarSiswaPhoto }}" alt="Foto {{ data_get($sidebarSiswa, 'nama', 'Siswa') }}"
+                        class="h-full w-full object-cover object-top" loading="lazy"
+                        onerror="this.onerror=null; this.parentElement.innerHTML='<span>{{ $sidebarSiswaInitial }}</span>'; ">
+                    @else
+                      <span>{{ $sidebarSiswaInitial }}</span>
+                    @endif
+                  </div>
+
+                  <div class="min-w-0">
+                    <div class="truncate text-sm font-semibold text-slate-800">
+                      {{ data_get($sidebarSiswa, 'nama', 'Siswa') }}
+                    </div>
+                    <div class="mt-0.5 truncate text-xs text-slate-500">
+                      NIS {{ data_get($sidebarSiswa, 'nis', '-') }}
+                      @if(data_get($sidebarSiswa, 'kelas'))
+                        • {{ data_get($sidebarSiswa, 'kelas') }}
+                      @endif
+                    </div>
+                  </div>
+                </div>
+              </div>
+            @endif
 
             <div class="shrink-0 border-b border-slate-200 bg-white px-4 py-3">
               <div class="flex items-center justify-between gap-2">
@@ -153,16 +418,8 @@
                       $isActive = $activeThread && (int) $activeThread->id === (int) $t->id;
                       $unreadCount = (int) ($t->unread_count ?? 0);
 
-                      $initial = \Illuminate\Support\Str::of($namaTujuan)
-                        ->trim()
-                        ->explode(' ')
-                        ->map(fn($p) => mb_substr($p, 0, 1))
-                        ->take(2)
-                        ->implode('');
-
-                      if (!$initial) {
-                        $initial = 'PS';
-                      }
+                      $initial = $makeInitial($namaTujuan, 'PS');
+                      $assigneePhoto = $resolveAssigneePhoto($assignee);
                     @endphp
 
                     <li>
@@ -170,8 +427,14 @@
                         class="group flex items-start gap-3 px-4 py-3 transition {{ $isActive ? 'bg-blue-50/70' : 'hover:bg-slate-50' }}">
 
                         <div
-                          class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-sm font-semibold text-blue-700 shadow-sm">
-                          {{ $initial }}
+                          class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-blue-100 bg-blue-100 text-sm font-semibold text-blue-700 shadow-sm transition duration-300 group-hover:scale-[1.03] group-hover:border-blue-200">
+                          @if($assigneePhoto)
+                            <img src="{{ $assigneePhoto }}" alt="Foto {{ $namaTujuan }}"
+                              class="h-full w-full object-cover object-top" loading="lazy"
+                              onerror="this.onerror=null; this.parentElement.innerHTML='<span>{{ $initial }}</span>'; ">
+                          @else
+                            <span>{{ $initial }}</span>
+                          @endif
                         </div>
 
                         <div class="min-w-0 flex-1">
@@ -201,7 +464,7 @@
 
                           <div class="mt-1.5">
                             <p class="truncate text-xs text-slate-400">
-                              {{ \Illuminate\Support\Str::limit($lastBody, 34) }}
+                              {{ Str::limit($lastBody, 34) }}
                             </p>
                           </div>
                         </div>
@@ -228,16 +491,9 @@
                   default => ucfirst($status),
                 };
 
-                $activeInitial = \Illuminate\Support\Str::of($assignee->name ?? 'Pihak Sekolah')
-                  ->trim()
-                  ->explode(' ')
-                  ->map(fn($p) => mb_substr($p, 0, 1))
-                  ->take(2)
-                  ->implode('');
-
-                if (!$activeInitial) {
-                  $activeInitial = 'PS';
-                }
+                $namaAktif = $assignee->name ?? 'Pihak Sekolah';
+                $activeInitial = $makeInitial($namaAktif, 'PS');
+                $activePhoto = $resolveAssigneePhoto($assignee);
               @endphp
 
               {{-- HEADER PERCAKAPAN --}}
@@ -245,13 +501,19 @@
                 <div class="flex items-start justify-between gap-3">
                   <div class="flex min-w-0 items-center gap-3">
                     <div
-                      class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-sm font-semibold text-blue-700 shadow-sm">
-                      {{ $activeInitial }}
+                      class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-blue-100 bg-blue-100 text-sm font-semibold text-blue-700 shadow-sm">
+                      @if($activePhoto)
+                        <img src="{{ $activePhoto }}" alt="Foto {{ $namaAktif }}"
+                          class="h-full w-full object-cover object-top" loading="lazy"
+                          onerror="this.onerror=null; this.parentElement.innerHTML='<span>{{ $activeInitial }}</span>'; ">
+                      @else
+                        <span>{{ $activeInitial }}</span>
+                      @endif
                     </div>
 
                     <div class="min-w-0">
                       <div class="truncate text-sm font-semibold text-slate-800 md:text-[15px]">
-                        {{ $assignee->name ?? 'Pihak Sekolah' }}
+                        {{ $namaAktif }}
                       </div>
                       <div class="mt-0.5 truncate text-xs text-slate-500">
                         {{ $roleLabel }}
@@ -259,7 +521,7 @@
                     </div>
                   </div>
 
-                  <div class="flex shrink-0 items-center gap-2">
+                  <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
                     <span
                       class="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-[11px] font-medium text-blue-700 ring-1 ring-blue-200">
                       {{ $statusLabel }}
@@ -274,7 +536,13 @@
                   @forelse($messages as $m)
                     @php
                       $isParent = $m->sender_type === 'parent';
-                      $who = $isParent ? 'Anda' : ($m->sender?->name ?? ucfirst($m->sender_type ?? 'Petugas'));
+                      $isAdmin = $m->sender_type === 'admin';
+                      $isGuru = in_array($m->sender_type, ['guru', 'walkel'], true);
+
+                      $who = $isParent
+                        ? 'Anda'
+                        : ($m->sender?->name ?? ($isAdmin ? 'Admin' : ($isGuru ? 'Wali Kelas' : ucfirst($m->sender_type ?? 'Petugas'))));
+
                       $align = $isParent ? 'justify-end' : 'justify-start';
 
                       $bubble = $isParent
@@ -323,17 +591,19 @@
               <div class="shrink-0 border-t border-slate-200 bg-white p-3 md:p-4">
                 @if(($activeThread->status ?? 'open') === 'resolved')
                   <div class="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
-                    Percakapan ini sudah diselesaikan. Silakan buat percakapan baru jika ingin mengirim pesan lagi.
+                    Percakapan ini sudah selesai. Silakan buat percakapan baru jika ingin mengirim pesan lagi.
                   </div>
                 @else
                   <form action="{{ route('ortu.chat.send', $activeThread->id) }}" method="POST"
                     class="flex items-end gap-2 md:gap-3" id="replyForm">
                     @csrf
+
                     <div class="flex-1">
                       <textarea name="message" rows="1"
                         class="w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm shadow-sm transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
                         placeholder="Tulis pesan..." required>{{ old('message') }}</textarea>
                     </div>
+
                     <button type="submit"
                       class="inline-flex h-[46px] shrink-0 items-center justify-center rounded-2xl bg-blue-500 px-4 text-sm font-medium text-white shadow-sm transition duration-300 hover:-translate-y-0.5 hover:bg-blue-600 hover:shadow-md md:px-5">
                       Kirim
@@ -356,8 +626,8 @@
                   Pilih percakapan di sebelah kiri
                 </h2>
                 <p class="mt-1 max-w-md text-sm text-slate-500">
-                  Klik salah satu percakapan untuk membuka detail chat, atau tekan
-                  <span class="font-medium text-blue-600">Kirim Pesan</span> untuk memulai percakapan baru.
+                  Klik salah satu tujuan chat untuk membuka detail percakapan, atau tekan
+                  <span class="font-medium text-blue-600">Kirim Pesan</span> untuk memulai percakapan.
                 </p>
               </div>
             @endif
@@ -376,11 +646,6 @@
       const replyForm = document.getElementById('replyForm');
       const emptyState = document.getElementById('chat-empty-state');
 
-      let searchTypingTimer;
-      let isSubmitting = false;
-      let pollInterval = null;
-      let pollInFlight = false;
-
       document.querySelectorAll('.auto-dismiss-alert').forEach((alert) => {
         setTimeout(() => {
           alert.classList.add('opacity-0', '-translate-y-1');
@@ -392,16 +657,21 @@
         }, 5000);
       });
 
+      let searchTypingTimer;
+      let isSubmitting = false;
+      let pollInFlight = false;
+
       searchInput?.addEventListener('input', () => {
-        loader.classList.remove('hidden');
+        loader?.classList.remove('hidden');
         clearTimeout(searchTypingTimer);
+
         searchTypingTimer = setTimeout(() => {
           searchForm.submit();
         }, 600);
       });
 
       searchForm?.addEventListener('submit', () => {
-        loader.classList.remove('hidden');
+        loader?.classList.remove('hidden');
       });
 
       function scrollToBottom(force = false) {
@@ -450,6 +720,7 @@
       function renderMessageBubble(msg) {
         const isOutgoing = !!msg.is_outgoing;
         const align = isOutgoing ? 'justify-end' : 'justify-start';
+
         const bubble = isOutgoing
           ? 'bg-blue-500 text-white rounded-br-md shadow-[0_10px_24px_rgba(59,130,246,0.18)]'
           : 'bg-slate-50 text-slate-800 rounded-bl-md border border-slate-200 shadow-[0_8px_20px_rgba(15,23,42,0.05)]';
@@ -459,23 +730,23 @@
           : '';
 
         return `
-              <div class="flex ${align} chat-message-item" data-message-id="${msg.id}">
-                <div class="max-w-[92%] sm:max-w-[85%] md:max-w-[76%]">
-                  <div class="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                    <span>${escapeHtml(msg.who || '-')}</span>
-                    <span>•</span>
-                    <span>${escapeHtml(msg.channel || '-')}</span>
-                    <span>•</span>
-                    <span>${escapeHtml(msg.time || '-')}</span>
-                    ${statusBadge}
-                  </div>
+            <div class="flex ${align} chat-message-item" data-message-id="${msg.id}">
+              <div class="max-w-[92%] sm:max-w-[85%] md:max-w-[76%]">
+                <div class="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                  <span>${escapeHtml(msg.who || '-')}</span>
+                  <span>•</span>
+                  <span>${escapeHtml(msg.channel || '-')}</span>
+                  <span>•</span>
+                  <span>${escapeHtml(msg.time || '-')}</span>
+                  ${statusBadge}
+                </div>
 
-                  <div class="rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed sm:px-4 ${bubble}">
-                    ${nl2br(msg.body || '')}
-                  </div>
+                <div class="rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed sm:px-4 ${bubble}">
+                  ${nl2br(msg.body || '')}
                 </div>
               </div>
-            `;
+            </div>
+          `;
       }
 
       async function fetchNewMessages() {
@@ -551,7 +822,7 @@
 
       if (chatBody) {
         scrollToBottom(true);
-        pollInterval = setInterval(fetchNewMessages, 2500);
+        setInterval(fetchNewMessages, 2500);
       }
 
       document.addEventListener('visibilitychange', function () {
