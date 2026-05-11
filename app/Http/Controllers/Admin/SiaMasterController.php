@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Services\SiaClient;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 
 class SiaMasterController extends Controller
@@ -12,6 +13,8 @@ class SiaMasterController extends Controller
     protected SiaClient $sia;
 
     protected string $viewBase = 'admin.sia-master';
+
+    protected int $perPage = 10;
 
     public function __construct(SiaClient $sia)
     {
@@ -29,12 +32,14 @@ class SiaMasterController extends Controller
         $q = trim((string) $request->q);
         $status = strtolower(trim((string) $request->status));
 
-        $data = $this->resolveSiswaIndexData($q, $status);
+        $rows = $this->resolveSiswaIndexData($q, $status);
+        $data = $this->paginateArray($rows, $request, $this->perPage);
 
         return view($this->view('siswa.index'), [
             'data' => $data,
             'q' => $q,
             'status' => $status,
+            'perPage' => $this->perPage,
         ]);
     }
 
@@ -60,11 +65,18 @@ class SiaMasterController extends Controller
     public function guruIndex(Request $request)
     {
         $q = trim((string) $request->q);
-        $res = $this->sia->masterGuru($q);
+        $res = $this->sia->masterGuru($q, [
+            'per_page' => $this->perPage,
+        ]);
 
-        $data = $this->asArray($res['data'] ?? []);
+        $rows = $this->asArray($res['data'] ?? []);
+        $data = $this->paginateArray($rows, $request, $this->perPage);
 
-        return view($this->view('guru.index'), compact('data', 'q'));
+        return view($this->view('guru.index'), [
+            'data' => $data,
+            'q' => $q,
+            'perPage' => $this->perPage,
+        ]);
     }
 
     public function guruShow($id)
@@ -79,6 +91,7 @@ class SiaMasterController extends Controller
 
         $jadwalRes = $this->sia->masterJadwal([
             'guru' => $id,
+            'per_page' => $this->perPage,
         ]);
 
         $jadwalList = collect($this->asArray($jadwalRes['data'] ?? []));
@@ -134,11 +147,13 @@ class SiaMasterController extends Controller
     |--------------------------------------------------------------------------
     */
 
-    public function tahunAjaranIndex()
+    public function tahunAjaranIndex(Request $request)
     {
-        $res = $this->sia->masterTahunAjaran();
+        $res = $this->sia->masterTahunAjaran(null, [
+            'per_page' => $this->perPage,
+        ]);
 
-        $tahunAjaran = collect($this->asArray($res['data'] ?? []))
+        $rows = collect($this->asArray($res['data'] ?? []))
             ->map(fn($r) => $this->toObject([
                 'id' => $this->dataGet($r, 'id'),
                 'nama_tahun' => $this->dataGet($r, 'nama_tahun', $this->dataGet($r, 'nama')),
@@ -146,9 +161,16 @@ class SiaMasterController extends Controller
                 'status' => $this->dataGet($r, 'status'),
                 'tanggal_mulai' => $this->dataGet($r, 'tanggal_mulai'),
                 'tanggal_selesai' => $this->dataGet($r, 'tanggal_selesai'),
-            ]));
+            ]))
+            ->values()
+            ->all();
 
-        return view($this->view('ta.index'), compact('tahunAjaran'));
+        $tahunAjaran = $this->paginateArray($rows, $request, $this->perPage);
+
+        return view($this->view('ta.index'), [
+            'tahunAjaran' => $tahunAjaran,
+            'perPage' => $this->perPage,
+        ]);
     }
 
     public function tahunAjaranShow($id)
@@ -185,9 +207,10 @@ class SiaMasterController extends Controller
         $res = $this->sia->masterMapel([
             'q' => $q,
             'tingkat' => $tingkat,
+            'per_page' => $this->perPage,
         ]);
 
-        $data = collect($this->asArray($res['data'] ?? []))
+        $rows = collect($this->asArray($res['data'] ?? []))
             ->map(function ($row) {
                 return [
                     'id' => $this->dataGet($row, 'id'),
@@ -202,7 +225,14 @@ class SiaMasterController extends Controller
             ->values()
             ->all();
 
-        return view($this->view('mapel.index'), compact('data', 'q', 'tingkat'));
+        $data = $this->paginateArray($rows, $request, $this->perPage);
+
+        return view($this->view('mapel.index'), [
+            'data' => $data,
+            'q' => $q,
+            'tingkat' => $tingkat,
+            'perPage' => $this->perPage,
+        ]);
     }
 
     public function mapelShow($id)
@@ -250,12 +280,15 @@ class SiaMasterController extends Controller
             'rombel' => $request->rombel,
             'guru' => $request->guru,
             'hari' => $request->hari,
+            'per_page' => $this->perPage,
         ]);
 
-        $data = collect($this->asArray($res['data'] ?? []))
+        $rows = collect($this->asArray($res['data'] ?? []))
             ->map(fn($row) => $this->toFlatJadwalRow($row))
             ->values()
             ->all();
+
+        $data = $this->paginateArray($rows, $request, $this->perPage);
 
         return view($this->view('jadwal.index'), [
             'data' => $data,
@@ -263,6 +296,7 @@ class SiaMasterController extends Controller
             'rombel' => $request->rombel,
             'guru' => $request->guru,
             'hari' => $request->hari,
+            'perPage' => $this->perPage,
         ]);
     }
 
@@ -366,6 +400,7 @@ class SiaMasterController extends Controller
             'aktif' => $request->aktif,
             'tahun_ajaran_id' => $request->tahun_ajaran_id,
             'tingkat' => $request->tingkat,
+            'per_page' => $this->perPage,
         ]);
 
         $rows = collect($this->asArray($res['data'] ?? []))
@@ -391,9 +426,12 @@ class SiaMasterController extends Controller
             ->values()
             ->all();
 
+        $data = $this->paginateArray($rows, $request, $this->perPage);
+
         return view($this->view('rombel.index'), [
-            'data' => $rows,
+            'data' => $data,
             'q' => $q,
+            'perPage' => $this->perPage,
         ]);
     }
 
@@ -480,23 +518,32 @@ class SiaMasterController extends Controller
         ]);
     }
 
-    public function rombelAnggota($id)
+    public function rombelAnggota(Request $request, $id)
     {
         $res = $this->sia->masterRombelAnggota($id);
-        $data = $this->asArray($res['data'] ?? []);
+        $rows = $this->asArray($res['data'] ?? []);
+        $data = $this->paginateArray($rows, $request, $this->perPage);
 
-        return view($this->view('rombel.anggota'), compact('data'));
+        return view($this->view('rombel.anggota'), [
+            'data' => $data,
+            'perPage' => $this->perPage,
+        ]);
     }
 
-    public function rombelJadwal($id)
+    public function rombelJadwal(Request $request, $id)
     {
         $res = $this->sia->masterRombelJadwal($id);
-        $data = collect($this->asArray($res['data'] ?? []))
+        $rows = collect($this->asArray($res['data'] ?? []))
             ->map(fn($j) => $this->toFlatJadwalRow($j))
             ->values()
             ->all();
 
-        return view($this->view('rombel.jadwal'), compact('data'));
+        $data = $this->paginateArray($rows, $request, $this->perPage);
+
+        return view($this->view('rombel.jadwal'), [
+            'data' => $data,
+            'perPage' => $this->perPage,
+        ]);
     }
 
     /*
@@ -511,7 +558,7 @@ class SiaMasterController extends Controller
         $statusFilter = strtolower(trim((string) $request->status));
         $mapelFilter = trim((string) $request->mapel);
 
-        $data = [];
+        $rows = [];
         $siswa = null;
         $mapelOptions = [];
 
@@ -522,7 +569,7 @@ class SiaMasterController extends Controller
                 $res = $this->sia->getPresensiByNis($nis);
 
                 if (($res['status'] ?? false) === true) {
-                    $rows = collect($this->asArray($this->dataGet($res['data'], 'presensi', [])))
+                    $presensiRows = collect($this->asArray($this->dataGet($res['data'], 'presensi', [])))
                         ->map(function ($row) {
                             return [
                                 'tanggal' => $this->dataGet($row, 'tanggal', $this->dataGet($row, 'tgl', '-')),
@@ -539,7 +586,7 @@ class SiaMasterController extends Controller
                         })
                         ->values();
 
-                    $mapelOptions = $rows
+                    $mapelOptions = $presensiRows
                         ->pluck('mapel')
                         ->filter()
                         ->unique()
@@ -547,7 +594,7 @@ class SiaMasterController extends Controller
                         ->values()
                         ->all();
 
-                    $grouped = $rows
+                    $grouped = $presensiRows
                         ->groupBy(fn($row) => strtolower(trim((string) ($row['mapel'] ?? '-'))))
                         ->map(function ($group) {
                             $group = collect($group)
@@ -585,7 +632,7 @@ class SiaMasterController extends Controller
                         });
                     }
 
-                    $data = $grouped
+                    $rows = $grouped
                         ->sortBy('mapel')
                         ->values()
                         ->all();
@@ -605,6 +652,8 @@ class SiaMasterController extends Controller
             }
         }
 
+        $data = $this->paginateArray($rows, $request, $this->perPage);
+
         return view($this->view('presensi.index'), [
             'data' => $data,
             'q' => $q,
@@ -612,6 +661,7 @@ class SiaMasterController extends Controller
             'statusFilter' => $statusFilter,
             'mapelFilter' => $mapelFilter,
             'mapelOptions' => $mapelOptions,
+            'perPage' => $this->perPage,
         ]);
     }
 
@@ -712,9 +762,10 @@ class SiaMasterController extends Controller
 
             return view($this->view('presensi.show'), [
                 'sesi' => $sesi,
-                'presensi' => $rows,
+                'presensi' => $this->paginateArray($rows, $request, $this->perPage),
                 'isMapelDetail' => true,
                 'q' => $q,
+                'perPage' => $this->perPage,
             ]);
         }
 
@@ -756,7 +807,7 @@ class SiaMasterController extends Controller
             ]),
         ]);
 
-        $presensi = collect($this->asArray($this->dataGet($d, 'presensi', [])))
+        $presensiRows = collect($this->asArray($this->dataGet($d, 'presensi', [])))
             ->map(function ($p) {
                 $siswa = $this->extractSiswaData($p);
 
@@ -772,9 +823,10 @@ class SiaMasterController extends Controller
 
         return view($this->view('presensi.show'), [
             'sesi' => $sesi,
-            'presensi' => $presensi,
+            'presensi' => $this->paginateArray($presensiRows, $request, $this->perPage),
             'isMapelDetail' => false,
             'q' => $q,
+            'perPage' => $this->perPage,
         ]);
     }
 
@@ -787,10 +839,13 @@ class SiaMasterController extends Controller
     public function nilaiIndex(Request $request)
     {
         $q = trim((string) $request->q);
-        $data = [];
+        $rows = [];
         $siswa = null;
 
-        $tahunAjaranRes = $this->sia->masterTahunAjaran();
+        $tahunAjaranRes = $this->sia->masterTahunAjaran(null, [
+            'per_page' => $this->perPage,
+        ]);
+
         $tahunAjaranMap = collect($this->asArray($tahunAjaranRes['data'] ?? []))
             ->mapWithKeys(function ($ta) {
                 $id = $this->dataGet($ta, 'id');
@@ -803,10 +858,12 @@ class SiaMasterController extends Controller
             [$nis, $siswa] = $this->resolveStudentFromQuery($q);
 
             if ($nis) {
-                $res = $this->sia->getNilaiByNis($nis);
+                $res = $this->sia->getNilaiByNis($nis, [
+                    'per_page' => $this->perPage,
+                ]);
 
                 if (($res['status'] ?? false) === true) {
-                    $data = collect($this->asArray($this->dataGet($res['data'], 'nilai', [])))
+                    $rows = collect($this->asArray($this->dataGet($res['data'], 'nilai', [])))
                         ->map(function ($row) use ($tahunAjaranMap) {
                             $rombel = $this->extractRombelData($row);
                             $mapel = $this->extractMapelData($row);
@@ -870,10 +927,13 @@ class SiaMasterController extends Controller
             }
         }
 
+        $data = $this->paginateArray($rows, $request, $this->perPage);
+
         return view($this->view('nilai.index'), [
             'data' => $data,
             'q' => $q,
             'siswa' => $siswa,
+            'perPage' => $this->perPage,
         ]);
     }
 
@@ -883,7 +943,10 @@ class SiaMasterController extends Controller
         $siswa = null;
         $nilai = null;
 
-        $tahunAjaranRes = $this->sia->masterTahunAjaran();
+        $tahunAjaranRes = $this->sia->masterTahunAjaran(null, [
+            'per_page' => $this->perPage,
+        ]);
+
         $tahunAjaranMap = collect($this->asArray($tahunAjaranRes['data'] ?? []))
             ->mapWithKeys(function ($ta) {
                 $id = $this->dataGet($ta, 'id');
@@ -978,9 +1041,10 @@ class SiaMasterController extends Controller
             'q' => $request->q,
             'pembina' => $request->pembina,
             'hari' => $request->hari,
+            'per_page' => $this->perPage,
         ]);
 
-        $data = collect($this->asArray($res['data'] ?? []))
+        $rows = collect($this->asArray($res['data'] ?? []))
             ->map(function ($row) {
                 $pembina = $this->extractGuruData($this->dataGet($row, 'pembina'));
 
@@ -998,11 +1062,14 @@ class SiaMasterController extends Controller
             ->values()
             ->all();
 
+        $data = $this->paginateArray($rows, $request, $this->perPage);
+
         return view($this->view('ekskul.index'), [
             'data' => $data,
             'q' => $request->q,
             'pembina' => $request->pembina,
             'hari' => $request->hari,
+            'perPage' => $this->perPage,
         ]);
     }
 
@@ -1078,6 +1145,32 @@ class SiaMasterController extends Controller
         return "{$this->viewBase}.{$path}";
     }
 
+    protected function paginateArray($items, Request $request, ?int $perPage = null): LengthAwarePaginator
+    {
+        $perPage = $perPage ?: $this->perPage;
+        $page = max((int) $request->query('page', 1), 1);
+
+        $collection = $items instanceof Collection
+            ? $items->values()
+            : collect($items)->values();
+
+        $total = $collection->count();
+        $pageItems = $collection
+            ->slice(($page - 1) * $perPage, $perPage)
+            ->values();
+
+        return new LengthAwarePaginator(
+            $pageItems,
+            $total,
+            $perPage,
+            $page,
+            [
+                'path' => $request->url(),
+                'query' => $request->query(),
+            ]
+        );
+    }
+
     protected function hasData(array $res): bool
     {
         return array_key_exists('data', $res) && !is_null($res['data']) && $res['data'] !== [];
@@ -1092,6 +1185,10 @@ class SiaMasterController extends Controller
     {
         if ($data instanceof Collection) {
             return $data->toArray();
+        }
+
+        if ($data instanceof LengthAwarePaginator) {
+            return $data->items();
         }
 
         if (is_array($data)) {
@@ -1381,6 +1478,7 @@ class SiaMasterController extends Controller
                 if (is_scalar($item)) {
                     return (string) $item;
                 }
+
                 return null;
             }, $ket));
 
@@ -1393,6 +1491,7 @@ class SiaMasterController extends Controller
                 if (is_scalar($item)) {
                     return (string) $item;
                 }
+
                 return null;
             }, $ket));
 
@@ -1479,7 +1578,7 @@ class SiaMasterController extends Controller
 
         try {
             $listRes = $this->sia->masterSiswa($q, [
-                'per_page' => 10,
+                'per_page' => $this->perPage,
             ]);
 
             $list = collect($this->extractListFromResponse($listRes));
@@ -1506,7 +1605,7 @@ class SiaMasterController extends Controller
 
         try {
             $allRes = $this->sia->masterSiswa('', [
-                'per_page' => 1000,
+                'per_page' => $this->perPage,
             ]);
 
             $allRows = collect($this->extractListFromResponse($allRes));
@@ -1549,7 +1648,7 @@ class SiaMasterController extends Controller
 
         try {
             $res = $this->sia->masterSiswa($q, [
-                'per_page' => 100,
+                'per_page' => $this->perPage,
             ]);
 
             $rows = $rows->merge($this->extractListFromResponse($res));
@@ -1565,7 +1664,7 @@ class SiaMasterController extends Controller
             if (!$hasMatch) {
                 try {
                     $allRes = $this->sia->masterSiswa('', [
-                        'per_page' => 1000,
+                        'per_page' => $this->perPage,
                     ]);
 
                     $rows = $rows->merge($this->extractListFromResponse($allRes));
@@ -1649,8 +1748,6 @@ class SiaMasterController extends Controller
             |--------------------------------------------------------------------------
             | Field foto dikirim lengkap agar blade index tetap kompatibel.
             |--------------------------------------------------------------------------
-            | Beberapa blade biasanya membaca $s->foto, $s->foto_url, $s->photo_url,
-            | atau $s->foto_src. Semua disediakan supaya thumbnail tidak hilang.
             */
             'foto' => $fotoRaw,
             'foto_url' => $this->dataGet($row, 'foto_url'),
@@ -1768,8 +1865,6 @@ class SiaMasterController extends Controller
         |--------------------------------------------------------------------------
         | Jika API SIA sudah mengirim URL lengkap
         |--------------------------------------------------------------------------
-        | Contoh:
-        | https://sia.smadatemanggung.my.id/storage/foto_siswa/namafile.jpg
         */
         if (preg_match('/^https?:\/\//i', $foto)) {
             return $foto;
@@ -1785,8 +1880,6 @@ class SiaMasterController extends Controller
         |--------------------------------------------------------------------------
         | Cek kemungkinan file lokal
         |--------------------------------------------------------------------------
-        | Bagian ini tetap dipertahankan agar fungsi lama tidak rusak jika sebelumnya
-        | SINTA pernah memakai file lokal, symlink, atau folder public tertentu.
         */
         $localCandidates = [
             $foto,
@@ -1808,7 +1901,6 @@ class SiaMasterController extends Controller
         |--------------------------------------------------------------------------
         | Fallback ke storage publik SIA
         |--------------------------------------------------------------------------
-        | Bagian ini yang disesuaikan agar memakai SIA_PUBLIC_URL.
         */
         $siaPublicUrl = rtrim((string) (
             config('services.sia.public_url') ?: config('services.sia.base_url')
@@ -1818,29 +1910,14 @@ class SiaMasterController extends Controller
             return null;
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Jika field foto sudah berbentuk storage/...
-        |--------------------------------------------------------------------------
-        */
         if (str_starts_with($foto, 'storage/')) {
             return $siaPublicUrl . '/' . $foto;
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Jika field foto sudah berbentuk foto_siswa/...
-        |--------------------------------------------------------------------------
-        */
         if (str_starts_with($foto, 'foto_siswa/')) {
             return $siaPublicUrl . '/storage/' . $foto;
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Jika field foto masih berupa nama file saja
-        |--------------------------------------------------------------------------
-        */
         return $siaPublicUrl . '/storage/foto_siswa/' . $basename;
     }
 }
