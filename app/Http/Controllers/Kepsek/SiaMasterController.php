@@ -1764,6 +1764,13 @@ class SiaMasterController extends Controller
             return null;
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | Jika API SIA sudah mengirim URL lengkap
+        |--------------------------------------------------------------------------
+        | Contoh:
+        | https://sia.smadatemanggung.my.id/storage/foto_siswa/namafile.jpg
+        */
         if (preg_match('/^https?:\/\//i', $foto)) {
             return $foto;
         }
@@ -1774,6 +1781,13 @@ class SiaMasterController extends Controller
 
         $basename = basename($foto);
 
+        /*
+        |--------------------------------------------------------------------------
+        | Cek kemungkinan file lokal
+        |--------------------------------------------------------------------------
+        | Bagian ini tetap dipertahankan agar fungsi lama tidak rusak jika sebelumnya
+        | SINTA pernah memakai file lokal, symlink, atau folder public tertentu.
+        */
         $localCandidates = [
             $foto,
             'sia/' . $foto,
@@ -1784,20 +1798,49 @@ class SiaMasterController extends Controller
             'storage/sia/foto_siswa/' . $basename,
         ];
 
-        foreach (array_unique($localCandidates) as $relativePath) {
+        foreach (array_unique(array_filter($localCandidates)) as $relativePath) {
             if (is_file(public_path($relativePath))) {
                 return asset($relativePath);
             }
         }
 
-        $fotoForStorage = preg_replace('#^storage/#', '', $foto);
+        /*
+        |--------------------------------------------------------------------------
+        | Fallback ke storage publik SIA
+        |--------------------------------------------------------------------------
+        | Bagian ini yang disesuaikan agar memakai SIA_PUBLIC_URL.
+        */
+        $siaPublicUrl = rtrim((string) (
+            config('services.sia.public_url') ?: config('services.sia.base_url')
+        ), '/');
 
-        $baseUrl = rtrim((string) config('services.sia.base_url'), '/');
-
-        if ($baseUrl !== '') {
-            return $baseUrl . '/storage/' . $fotoForStorage;
+        if ($siaPublicUrl === '') {
+            return null;
         }
 
-        return null;
+        /*
+        |--------------------------------------------------------------------------
+        | Jika field foto sudah berbentuk storage/...
+        |--------------------------------------------------------------------------
+        */
+        if (str_starts_with($foto, 'storage/')) {
+            return $siaPublicUrl . '/' . $foto;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Jika field foto sudah berbentuk foto_siswa/...
+        |--------------------------------------------------------------------------
+        */
+        if (str_starts_with($foto, 'foto_siswa/')) {
+            return $siaPublicUrl . '/storage/' . $foto;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Jika field foto masih berupa nama file saja
+        |--------------------------------------------------------------------------
+        */
+        return $siaPublicUrl . '/storage/foto_siswa/' . $basename;
     }
 }

@@ -66,6 +66,7 @@ return [
     'sia' => [
         'base_url' => rtrim((string) env('SIA_BASE_URL', 'https://unkeeled-naturally-lacie.ngrok-free.dev'), '/'),
         'token' => env('SIA_TOKEN', 'rahasia-sinta-123'),
+        'public_url' => env('SIA_PUBLIC_URL', env('SIA_BASE_URL')),
         'kepsek_nuptk' => env('KEPSEK_NUPTK'),
     ],
 ];

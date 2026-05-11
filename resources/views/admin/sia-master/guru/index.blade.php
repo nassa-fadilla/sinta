@@ -29,6 +29,80 @@
             $makeUrl = function ($p) use ($queryBase) {
                 return request()->url() . '?' . http_build_query(array_merge($queryBase, ['page' => $p]));
             };
+
+            $defaultFoto = file_exists(public_path('images/default-user.png'))
+                ? asset('images/default-user.png')
+                : asset('images/default-siswa.png');
+
+            $resolveGuruFoto = function ($row) use ($defaultFoto) {
+                $fotoUrl = $row['foto_url'] ?? null;
+
+                if (is_scalar($fotoUrl) && trim((string) $fotoUrl) !== '') {
+                    $fotoUrl = trim((string) $fotoUrl);
+
+                    if (preg_match('/^https?:\/\//i', $fotoUrl)) {
+                        return $fotoUrl;
+                    }
+
+                    $fotoUrl = str_replace('\\', '/', $fotoUrl);
+                    $fotoUrl = preg_replace('#/+#', '/', $fotoUrl);
+                    $fotoUrl = ltrim($fotoUrl, '/');
+
+                    $siaPublicUrl = rtrim((string) (config('services.sia.public_url') ?: config('services.sia.base_url')), '/');
+
+                    if ($siaPublicUrl !== '') {
+                        return $siaPublicUrl . '/' . $fotoUrl;
+                    }
+                }
+
+                $fotoRaw = $row['foto'] ?? null;
+
+                if (!empty($fotoRaw)) {
+                    $rawFoto = trim((string) $fotoRaw);
+
+                    if (preg_match('/^https?:\/\//i', $rawFoto)) {
+                        return $rawFoto;
+                    }
+
+                    $rawFoto = str_replace('\\', '/', $rawFoto);
+                    $rawFoto = preg_replace('#/+#', '/', $rawFoto);
+                    $rawFoto = ltrim($rawFoto, '/');
+
+                    $basename = basename($rawFoto);
+
+                    $localCandidates = [
+                        $rawFoto,
+                        'foto_guru/' . $basename,
+                        'sia/' . $rawFoto,
+                        'sia/foto_guru/' . $basename,
+                        'storage/' . $rawFoto,
+                        'storage/foto_guru/' . $basename,
+                        'storage/sia/foto_guru/' . $basename,
+                    ];
+
+                    foreach (array_unique(array_filter($localCandidates)) as $relativePath) {
+                        if (is_file(public_path($relativePath))) {
+                            return asset($relativePath);
+                        }
+                    }
+
+                    $siaPublicUrl = rtrim((string) (config('services.sia.public_url') ?: config('services.sia.base_url')), '/');
+
+                    if ($siaPublicUrl !== '') {
+                        if (str_starts_with($rawFoto, 'storage/')) {
+                            return $siaPublicUrl . '/' . $rawFoto;
+                        }
+
+                        if (str_starts_with($rawFoto, 'foto_guru/')) {
+                            return $siaPublicUrl . '/storage/' . $rawFoto;
+                        }
+
+                        return $siaPublicUrl . '/storage/foto_guru/' . $basename;
+                    }
+                }
+
+                return $defaultFoto;
+            };
         @endphp
 
         <section
@@ -61,12 +135,12 @@
                         </div>
 
                         <div class="shrink-0 lg:pt-1">
-    <span
-        class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3.5 py-1.5 text-xs font-semibold text-blue-700 ring-1 ring-blue-100">
-        <span class="h-2 w-2 rounded-full bg-blue-500"></span>
-        Total Data: {{ $total }}
-    </span>
-</div>
+                            <span
+                                class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3.5 py-1.5 text-xs font-semibold text-blue-700 ring-1 ring-blue-100">
+                                <span class="h-2 w-2 rounded-full bg-blue-500"></span>
+                                Total Data: {{ $total }}
+                            </span>
+                        </div>
                     </div>
 
                     {{-- SEARCH + FILTER --}}
@@ -134,171 +208,134 @@
                 <div class="overflow-hidden">
                     <div class="overflow-x-auto">
                         <table class="w-full min-w-[980px] table-auto border-collapse text-sm">
-    <thead class="bg-slate-50">
-        <tr
-            class="border-b border-slate-200/80 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-            <th class="w-14 px-4 py-4 text-center">No</th>
-            <th class="px-5 py-4">Nama</th>
-            <th class="px-5 py-4">NIP</th>
-            <th class="px-5 py-4">NUPTK</th>
-            <th class="px-5 py-4">Status Kepegawaian</th>
-            <th
-                class="sticky right-0 z-20 border-l border-slate-200 bg-slate-50 px-5 py-4 text-center shadow-[-8px_0_16px_-12px_rgba(15,23,42,0.18)]">
-                Aksi
-            </th>
-        </tr>
-    </thead>
+                            <thead class="bg-slate-50">
+                                <tr
+                                    class="border-b border-slate-200/80 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                    <th class="w-14 px-4 py-4 text-center">No</th>
+                                    <th class="px-5 py-4">Nama</th>
+                                    <th class="px-5 py-4">NIP</th>
+                                    <th class="px-5 py-4">NUPTK</th>
+                                    <th class="px-5 py-4">Status Kepegawaian</th>
+                                    <th
+                                        class="sticky right-0 z-20 border-l border-slate-200 bg-slate-50 px-5 py-4 text-center shadow-[-8px_0_16px_-12px_rgba(15,23,42,0.18)]">
+                                        Aksi
+                                    </th>
+                                </tr>
+                            </thead>
 
-    <tbody class="divide-y divide-slate-100/90 text-slate-700">
-        @forelse($pageItems as $row)
-            @php
-                $statusPegawai = strtoupper((string) ($row['status_kepegawaian'] ?? '-'));
+                            <tbody class="divide-y divide-slate-100/90 text-slate-700">
+                                @forelse($pageItems as $row)
+                                    @php
+                                        $statusPegawai = strtoupper((string) ($row['status_kepegawaian'] ?? '-'));
 
-                $badgeClass = match ($statusPegawai) {
-                    'PNS' => 'bg-blue-50 text-blue-700 ring-1 ring-blue-200/80',
-                    'PPPK' => 'bg-violet-50 text-violet-700 ring-1 ring-violet-200/80',
-                    'HONORER' => 'bg-amber-50 text-amber-700 ring-1 ring-amber-200/80',
-                    'GTY' => 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/80',
-                    'GTT' => 'bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200/80',
-                    default => 'bg-slate-50 text-slate-700 ring-1 ring-slate-200',
-                };
+                                        $badgeClass = match ($statusPegawai) {
+                                            'PNS' => 'bg-blue-50 text-blue-700 ring-1 ring-blue-200/80',
+                                            'PPPK' => 'bg-violet-50 text-violet-700 ring-1 ring-violet-200/80',
+                                            'HONORER' => 'bg-amber-50 text-amber-700 ring-1 ring-amber-200/80',
+                                            'GTY' => 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/80',
+                                            'GTT' => 'bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200/80',
+                                            default => 'bg-slate-50 text-slate-700 ring-1 ring-slate-200',
+                                        };
 
-                $dotClass = match ($statusPegawai) {
-                    'PNS' => 'bg-blue-500',
-                    'PPPK' => 'bg-violet-500',
-                    'HONORER' => 'bg-amber-500',
-                    'GTY' => 'bg-emerald-500',
-                    'GTT' => 'bg-cyan-500',
-                    default => 'bg-slate-400',
-                };
+                                        $dotClass = match ($statusPegawai) {
+                                            'PNS' => 'bg-blue-500',
+                                            'PPPK' => 'bg-violet-500',
+                                            'HONORER' => 'bg-amber-500',
+                                            'GTY' => 'bg-emerald-500',
+                                            'GTT' => 'bg-cyan-500',
+                                            default => 'bg-slate-400',
+                                        };
 
-                $fotoRaw = $row['foto'] ?? null;
-                $fotoThumb = null;
+                                        $fotoThumb = $resolveGuruFoto($row);
 
-                if (!empty($fotoRaw)) {
-                    $rawFoto = trim((string) $fotoRaw);
+                                        $inisial = \Illuminate\Support\Str::of($row['nama'] ?? 'G')
+                                            ->trim()
+                                            ->explode(' ')
+                                            ->map(fn($p) => mb_substr($p, 0, 1))
+                                            ->take(2)
+                                            ->implode('');
+                                    @endphp
 
-                    if (preg_match('/^https?:\/\//i', $rawFoto)) {
-                        $fotoThumb = $rawFoto;
-                    } else {
-                        $rawFoto = str_replace('\\', '/', $rawFoto);
-                        $rawFoto = preg_replace('#/+#', '/', $rawFoto);
-                        $rawFoto = ltrim($rawFoto, '/');
+                                    <tr
+                                        class="group transition duration-300 hover:bg-blue-50/50 hover:shadow-[inset_0_0_0_1px_rgba(191,219,254,0.45)]">
+                                        <td class="px-4 py-4 text-center text-xs font-medium text-slate-500">
+                                            {{ $i++ }}
+                                        </td>
 
-                        $basename = basename($rawFoto);
+                                        <td class="px-5 py-4">
+                                            <div class="flex items-center gap-3">
+                                                <div
+                                                    class="flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition duration-300 group-hover:scale-[1.04] group-hover:border-blue-200 group-hover:shadow-md">
+                                                    @if($fotoThumb)
+                                                        <img src="{{ $fotoThumb }}" alt="Foto {{ $row['nama'] ?? 'Guru' }}"
+                                                            class="h-full w-full object-cover object-top"
+                                                            onerror="this.onerror=null; this.parentElement.innerHTML='<span class=&quot;text-xs font-semibold text-blue-700&quot;>{{ $inisial }}</span>'; ">
+                                                    @else
+                                                        <span class="text-xs font-semibold text-blue-700">
+                                                            {{ $inisial }}
+                                                        </span>
+                                                    @endif
+                                                </div>
 
-                        $candidates = [
-                            $rawFoto,
-                            'foto_guru/' . $basename,
-                            'sia/' . $rawFoto,
-                            'sia/foto_guru/' . $basename,
-                            'storage/foto_guru/' . $basename,
-                            'storage/sia/foto_guru/' . $basename,
-                        ];
+                                                <div class="min-w-0">
+                                                    <div
+                                                        class="truncate font-semibold text-slate-800 transition duration-300 group-hover:text-blue-700">
+                                                        {{ $row['nama'] ?? '-' }}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </td>
 
-                        $candidates = array_values(array_unique(array_filter($candidates)));
+                                        <td class="px-5 py-4 font-medium text-slate-700">
+                                            {{ $row['nip'] ?? '-' }}
+                                        </td>
 
-                        foreach ($candidates as $relativePath) {
-                            if (is_file(public_path($relativePath))) {
-                                $fotoThumb = asset($relativePath);
-                                break;
-                            }
-                        }
-                    }
-                }
+                                        <td class="px-5 py-4 text-slate-700">
+                                            {{ $row['nuptk'] ?? '-' }}
+                                        </td>
 
-                if (!$fotoThumb && !empty($row['foto_url']) && preg_match('/^https?:\/\//i', (string) $row['foto_url'])) {
-                    $fotoThumb = $row['foto_url'];
-                }
+                                        <td class="px-5 py-4">
+                                            <span
+                                                class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold {{ $badgeClass }}">
+                                                <span class="h-1.5 w-1.5 rounded-full {{ $dotClass }}"></span>
+                                                <span>{{ $row['status_kepegawaian'] ?? '-' }}</span>
+                                            </span>
+                                        </td>
 
-                $inisial = \Illuminate\Support\Str::of($row['nama'] ?? 'G')
-                    ->trim()
-                    ->explode(' ')
-                    ->map(fn($p) => mb_substr($p, 0, 1))
-                    ->take(2)
-                    ->implode('');
-            @endphp
-
-            <tr
-                class="group transition duration-300 hover:bg-blue-50/50 hover:shadow-[inset_0_0_0_1px_rgba(191,219,254,0.45)]">
-                <td class="px-4 py-4 text-center text-xs font-medium text-slate-500">
-                    {{ $i++ }}
-                </td>
-
-                <td class="px-5 py-4">
-                    <div class="flex items-center gap-3">
-                        <div
-                            class="flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition duration-300 group-hover:scale-[1.04] group-hover:border-blue-200 group-hover:shadow-md">
-                            @if($fotoThumb)
-                                <img src="{{ $fotoThumb }}" alt="Foto {{ $row['nama'] ?? 'Guru' }}"
-                                    class="h-full w-full object-cover object-top"
-                                    onerror="this.onerror=null; this.parentElement.innerHTML='<span class=&quot;text-xs font-semibold text-blue-700&quot;>{{ $inisial }}</span>'; ">
-                            @else
-                                <span class="text-xs font-semibold text-blue-700">
-                                    {{ $inisial }}
-                                </span>
-                            @endif
-                        </div>
-
-                        <div class="min-w-0">
-                            <div
-                                class="truncate font-semibold text-slate-800 transition duration-300 group-hover:text-blue-700">
-                                {{ $row['nama'] ?? '-' }}
-                            </div>
-                        </div>
-                    </div>
-                </td>
-
-                <td class="px-5 py-4 font-medium text-slate-700">
-                    {{ $row['nip'] ?? '-' }}
-                </td>
-
-                <td class="px-5 py-4 text-slate-700">
-                    {{ $row['nuptk'] ?? '-' }}
-                </td>
-
-                <td class="px-5 py-4">
-                    <span
-                        class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold {{ $badgeClass }}">
-                        <span class="h-1.5 w-1.5 rounded-full {{ $dotClass }}"></span>
-                        <span>{{ $row['status_kepegawaian'] ?? '-' }}</span>
-                    </span>
-                </td>
-
-                <td
-                    class="sticky right-0 z-10 border-l border-slate-200 bg-white px-5 py-4 text-center shadow-[-8px_0_16px_-12px_rgba(15,23,42,0.14)] group-hover:bg-blue-50">
-                    <a href="{{ route('admin.sia-master.guru.show', $row['id']) }}"
-                        class="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 hover:shadow-md">
-                        <span>Detail</span>
-                    </a>
-                </td>
-            </tr>
-        @empty
-            <tr>
-                <td colspan="6" class="px-5 py-14 text-center">
-                    <div class="flex flex-col items-center justify-center gap-3 text-slate-500">
-                        <div
-                            class="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 shadow-inner">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none"
-                                viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                                <path stroke-linecap="round" stroke-linejoin="round"
-                                    d="M15 11a3 3 0 11-6 0 3 3 0 016 0" />
-                                <path stroke-linecap="round" stroke-linejoin="round"
-                                    d="M4 20a8 8 0 0116 0" />
-                            </svg>
-                        </div>
-                        <div>
-                            <p class="text-sm font-semibold text-slate-700">Tidak ada data guru.</p>
-                            <p class="mt-1 text-xs text-slate-500">
-                                Coba ubah kata kunci pencarian atau filter yang digunakan.
-                            </p>
-                        </div>
-                    </div>
-                </td>
-            </tr>
-        @endforelse
-    </tbody>
-</table>
+                                        <td
+                                            class="sticky right-0 z-10 border-l border-slate-200 bg-white px-5 py-4 text-center shadow-[-8px_0_16px_-12px_rgba(15,23,42,0.14)] group-hover:bg-blue-50">
+                                            <a href="{{ route('admin.sia-master.guru.show', $row['id']) }}"
+                                                class="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 hover:shadow-md">
+                                                <span>Detail</span>
+                                            </a>
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="6" class="px-5 py-14 text-center">
+                                            <div class="flex flex-col items-center justify-center gap-3 text-slate-500">
+                                                <div
+                                                    class="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 shadow-inner">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none"
+                                                        viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                                                        <path stroke-linecap="round" stroke-linejoin="round"
+                                                            d="M15 11a3 3 0 11-6 0 3 3 0 016 0" />
+                                                        <path stroke-linecap="round" stroke-linejoin="round"
+                                                            d="M4 20a8 8 0 0116 0" />
+                                                    </svg>
+                                                </div>
+                                                <div>
+                                                    <p class="text-sm font-semibold text-slate-700">Tidak ada data guru.</p>
+                                                    <p class="mt-1 text-xs text-slate-500">
+                                                        Coba ubah kata kunci pencarian atau filter yang digunakan.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
                     </div>
                 </div>
 
