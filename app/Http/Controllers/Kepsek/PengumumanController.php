@@ -86,9 +86,6 @@ class PengumumanController extends Controller
      * =========================================================
      * PREVIEW PDF INLINE
      * =========================================================
-     *
-     * PDF tidak dibuka langsung lewat /storage agar tidak terkena 403
-     * pada hosting. File dibaca dari disk public melalui Laravel.
      */
     public function pdfView(Pengumuman $pengumuman): BinaryFileResponse|Response
     {
@@ -100,6 +97,7 @@ class PengumumanController extends Controller
         return response()->file($fullPath, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'inline; filename="pengumuman-' . $pengumuman->id . '.pdf"',
+            'Cache-Control' => 'public, max-age=3600',
         ]);
     }
 
@@ -107,8 +105,6 @@ class PengumumanController extends Controller
      * =========================================================
      * DOWNLOAD PDF
      * =========================================================
-     *
-     * Unduhan juga lewat controller agar konsisten seperti fitur orang tua.
      */
     public function pdfDownload(Pengumuman $pengumuman): StreamedResponse
     {
@@ -138,39 +134,23 @@ class PengumumanController extends Controller
         DB::transaction(function () use ($pengumuman) {
             $now = now();
 
-            /*
-            |--------------------------------------------------------------------------
-            | Catatan Logika Aktif
-            |--------------------------------------------------------------------------
-            | is_active digunakan sebagai penanda bahwa pengumuman sudah disetujui dan
-            | tidak dinonaktifkan. Waktu tampil tetap dikontrol oleh publish_at dan
-            | expire_at melalui scopeAktif() pada model Pengumuman.
-            |
-            | Dengan begitu, pengumuman yang disetujui hari ini tetapi dijadwalkan
-            | tayang besok tetap akan muncul otomatis ketika publish_at sudah tercapai.
-            |--------------------------------------------------------------------------
-            */
+            $oldPdfPath = $this->normalizePdfPath($pengumuman->pdf_path);
+
+            if ($oldPdfPath && Storage::disk('public')->exists($oldPdfPath)) {
+                Storage::disk('public')->delete($oldPdfPath);
+            }
+
             $pengumuman->update([
                 'status' => 'approved',
                 'approved_by' => Auth::id(),
                 'approved_at' => $now,
                 'is_active' => true,
                 'reject_note' => null,
+                'pdf_path' => null,
             ]);
 
-            $pdf = Pdf::loadView('pdf.pengumuman_resmi', [
-                'item' => $pengumuman->fresh()->load(['author', 'approver']),
-                'capPath' => public_path('images/cap-sma2.png'),
-                'ttdPath' => public_path('images/ttd-kepsek.png'),
-            ])->setPaper('A4', 'portrait');
-
-            $path = 'pengumuman/pdf/pengumuman_' . $pengumuman->id . '.pdf';
-
-            if (!empty($pengumuman->pdf_path) && Storage::disk('public')->exists($pengumuman->pdf_path)) {
-                Storage::disk('public')->delete($pengumuman->pdf_path);
-            }
-
-            Storage::disk('public')->put($path, $pdf->output());
+            $freshPengumuman = $pengumuman->fresh(['author', 'approver']);
+            $path = $this->generateOfficialPdf($freshPengumuman);
 
             $pengumuman->update([
                 'pdf_path' => $path,
@@ -200,8 +180,10 @@ class PengumumanController extends Controller
         ]);
 
         DB::transaction(function () use ($request, $pengumuman) {
-            if (!empty($pengumuman->pdf_path) && Storage::disk('public')->exists($pengumuman->pdf_path)) {
-                Storage::disk('public')->delete($pengumuman->pdf_path);
+            $oldPdfPath = $this->normalizePdfPath($pengumuman->pdf_path);
+
+            if ($oldPdfPath && Storage::disk('public')->exists($oldPdfPath)) {
+                Storage::disk('public')->delete($oldPdfPath);
             }
 
             $pengumuman->update([
@@ -223,16 +205,9 @@ class PengumumanController extends Controller
      * =========================================================
      * HELPER: AKSES PDF KEPSEK
      * =========================================================
-     *
-     * Kepsek boleh membuka PDF pengumuman yang sudah memiliki file PDF.
-     * File PDF umumnya tersedia setelah pengumuman disetujui.
      */
     private function authorizePdfAccess(Pengumuman $pengumuman): void
     {
-        if (empty($pengumuman->pdf_path)) {
-            abort(404, 'PDF belum tersedia.');
-        }
-
         if (($pengumuman->status ?? null) !== 'approved') {
             abort(403, 'PDF hanya tersedia untuk pengumuman yang telah disetujui.');
         }
@@ -242,32 +217,93 @@ class PengumumanController extends Controller
      * =========================================================
      * HELPER: NORMALISASI PATH PDF
      * =========================================================
-     *
-     * Mendukung path lama/baru:
-     * - pengumuman/pdf/pengumuman_17.pdf
-     * - storage/pengumuman/pdf/pengumuman_17.pdf
-     * - /storage/pengumuman/pdf/pengumuman_17.pdf
      */
-    private function resolvePdfPath(Pengumuman $pengumuman): string
+    private function normalizePdfPath(?string $path): ?string
     {
-        if (empty($pengumuman->pdf_path)) {
-            abort(404, 'PDF belum tersedia.');
+        if (empty($path)) {
+            return null;
         }
 
-        $pdfPath = trim((string) $pengumuman->pdf_path);
+        $pdfPath = trim((string) $path);
         $pdfPath = str_replace('\\', '/', $pdfPath);
         $pdfPath = preg_replace('#/+#', '/', $pdfPath);
         $pdfPath = ltrim($pdfPath, '/');
 
-        if (str_starts_with($pdfPath, 'storage/')) {
-            $pdfPath = substr($pdfPath, 8);
+        if (str_starts_with($pdfPath, 'public/storage/')) {
+            $pdfPath = substr($pdfPath, strlen('public/storage/'));
         }
+
+        if (str_starts_with($pdfPath, 'storage/app/public/')) {
+            $pdfPath = substr($pdfPath, strlen('storage/app/public/'));
+        }
+
+        if (str_starts_with($pdfPath, 'storage/')) {
+            $pdfPath = substr($pdfPath, strlen('storage/'));
+        }
+
+        return $pdfPath !== '' ? $pdfPath : null;
+    }
+
+    /**
+     * =========================================================
+     * HELPER: RESOLVE PDF PATH
+     * =========================================================
+     */
+    private function resolvePdfPath(Pengumuman $pengumuman): string
+    {
+        $pdfPath = $this->normalizePdfPath($pengumuman->pdf_path);
+
+        if ($pdfPath && Storage::disk('public')->exists($pdfPath)) {
+            return $pdfPath;
+        }
+
+        if (($pengumuman->status ?? null) !== 'approved') {
+            abort(403, 'PDF hanya tersedia untuk pengumuman yang telah disetujui.');
+        }
+
+        $freshPengumuman = $pengumuman->fresh(['author', 'approver']) ?: $pengumuman;
+        $pdfPath = $this->generateOfficialPdf($freshPengumuman);
+
+        $pengumuman->forceFill([
+            'pdf_path' => $pdfPath,
+        ])->save();
 
         if (!Storage::disk('public')->exists($pdfPath)) {
             abort(404, 'File PDF tidak ditemukan.');
         }
 
         return $pdfPath;
+    }
+
+    /**
+     * =========================================================
+     * HELPER: GENERATE PDF RESMI
+     * =========================================================
+     */
+    private function generateOfficialPdf(Pengumuman $item): string
+    {
+        $item->loadMissing(['author', 'approver']);
+
+        $path = 'pengumuman/pdf/pengumuman_' . $item->id . '.pdf';
+
+        Storage::disk('public')->makeDirectory('pengumuman/pdf');
+
+        $pdf = Pdf::loadView('pdf.pengumuman_resmi', [
+            'item' => $item,
+            'capPath' => $this->publicImagePath('images/cap-sma2.png'),
+            'ttdPath' => $this->publicImagePath('images/ttd-kepsek.png'),
+        ])->setPaper('A4', 'portrait');
+
+        Storage::disk('public')->put($path, $pdf->output());
+
+        return $path;
+    }
+
+    private function publicImagePath(string $relativePath): ?string
+    {
+        $path = public_path($relativePath);
+
+        return is_file($path) ? $path : null;
     }
 
     /**

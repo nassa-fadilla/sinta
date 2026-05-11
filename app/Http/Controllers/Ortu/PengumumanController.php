@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Ortu;
 use App\Http\Controllers\Controller;
 use App\Models\Pengumuman;
 use App\Services\SiaClient;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Response;
 use Illuminate\Support\Collection;
@@ -26,8 +27,6 @@ class PengumumanController extends Controller
 
     /**
      * Daftar pengumuman aktif untuk orang tua.
-     * Pengumuman berasal dari DB SINTA.
-     * Data tingkat siswa berasal dari API SIA.
      */
     public function index(): View
     {
@@ -67,6 +66,7 @@ class PengumumanController extends Controller
         return response()->file($fullPath, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'inline; filename="pengumuman-' . $pengumuman->id . '.pdf"',
+            'Cache-Control' => 'public, max-age=3600',
         ]);
     }
 
@@ -211,12 +211,6 @@ class PengumumanController extends Controller
             null
         );
 
-        /*
-        |--------------------------------------------------------------------------
-        | Prioritas tingkat dari nama rombel.
-        |--------------------------------------------------------------------------
-        | Nama rombel seperti XIIA, XIA, XA lebih aman untuk menentukan tingkat.
-        */
         $tingkat = $this->normalizeTingkat(
             data_get($siswaDetail, 'rombel.nama_rombel'),
             data_get($siswaDetail, 'rombel.nama'),
@@ -290,11 +284,6 @@ class PengumumanController extends Controller
             $text = preg_replace('/\s+/', ' ', $text);
             $compact = preg_replace('/[^A-Z0-9]/', '', $text);
 
-            /*
-            |--------------------------------------------------------------------------
-            | Bentuk angka.
-            |--------------------------------------------------------------------------
-            */
             if (
                 $compact === '12' ||
                 str_contains($compact, 'KELAS12') ||
@@ -322,12 +311,6 @@ class PengumumanController extends Controller
                 return 'X';
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | Bentuk nama rombel langsung.
-            |--------------------------------------------------------------------------
-            | Urutan wajib: XII -> XI -> X.
-            */
             if (str_starts_with($compact, 'XII')) {
                 return 'XII';
             }
@@ -340,11 +323,6 @@ class PengumumanController extends Controller
                 return 'X';
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | Bentuk frasa.
-            |--------------------------------------------------------------------------
-            */
             if (preg_match('/\bKELAS\s*XII\b|\bTINGKAT\s*XII\b|\bXII\b/', $text)) {
                 return 'XII';
             }
@@ -362,28 +340,87 @@ class PengumumanController extends Controller
     }
 
     /**
-     * Normalisasi path PDF supaya aman walau format lama/baru berbeda.
+     * Normalisasi path PDF.
      */
-    private function resolvePdfPath(Pengumuman $pengumuman): string
+    private function normalizePdfPath(?string $path): ?string
     {
-        if (empty($pengumuman->pdf_path)) {
-            abort(404, 'PDF belum tersedia.');
+        if (empty($path)) {
+            return null;
         }
 
-        $pdfPath = trim((string) $pengumuman->pdf_path);
+        $pdfPath = trim((string) $path);
         $pdfPath = str_replace('\\', '/', $pdfPath);
         $pdfPath = preg_replace('#/+#', '/', $pdfPath);
         $pdfPath = ltrim($pdfPath, '/');
 
-        if (str_starts_with($pdfPath, 'storage/')) {
-            $pdfPath = substr($pdfPath, 8);
+        if (str_starts_with($pdfPath, 'public/storage/')) {
+            $pdfPath = substr($pdfPath, strlen('public/storage/'));
         }
+
+        if (str_starts_with($pdfPath, 'storage/app/public/')) {
+            $pdfPath = substr($pdfPath, strlen('storage/app/public/'));
+        }
+
+        if (str_starts_with($pdfPath, 'storage/')) {
+            $pdfPath = substr($pdfPath, strlen('storage/'));
+        }
+
+        return $pdfPath !== '' ? $pdfPath : null;
+    }
+
+    /**
+     * Resolve PDF. Jika file hilang tetapi pengumuman approved, PDF dibuat ulang.
+     */
+    private function resolvePdfPath(Pengumuman $pengumuman): string
+    {
+        $pdfPath = $this->normalizePdfPath($pengumuman->pdf_path);
+
+        if ($pdfPath && Storage::disk('public')->exists($pdfPath)) {
+            return $pdfPath;
+        }
+
+        if (($pengumuman->status ?? null) !== 'approved') {
+            abort(403, 'PDF hanya tersedia untuk pengumuman yang telah disetujui.');
+        }
+
+        $freshPengumuman = $pengumuman->fresh(['author', 'approver']) ?: $pengumuman;
+        $pdfPath = $this->generateOfficialPdf($freshPengumuman);
+
+        $pengumuman->forceFill([
+            'pdf_path' => $pdfPath,
+        ])->save();
 
         if (!Storage::disk('public')->exists($pdfPath)) {
             abort(404, 'File PDF tidak ditemukan.');
         }
 
         return $pdfPath;
+    }
+
+    private function generateOfficialPdf(Pengumuman $item): string
+    {
+        $item->loadMissing(['author', 'approver']);
+
+        $path = 'pengumuman/pdf/pengumuman_' . $item->id . '.pdf';
+
+        Storage::disk('public')->makeDirectory('pengumuman/pdf');
+
+        $pdf = Pdf::loadView('pdf.pengumuman_resmi', [
+            'item' => $item,
+            'capPath' => $this->publicImagePath('images/cap-sma2.png'),
+            'ttdPath' => $this->publicImagePath('images/ttd-kepsek.png'),
+        ])->setPaper('A4', 'portrait');
+
+        Storage::disk('public')->put($path, $pdf->output());
+
+        return $path;
+    }
+
+    private function publicImagePath(string $relativePath): ?string
+    {
+        $path = public_path($relativePath);
+
+        return is_file($path) ? $path : null;
     }
 
     private function responseOk($response): bool
