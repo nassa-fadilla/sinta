@@ -13,22 +13,126 @@
             ? asset('images/default-user.png')
             : asset('images/logo-sma2.png');
 
-        /*
-        |--------------------------------------------------------------------------
-        | Foto kepala sekolah
-        |--------------------------------------------------------------------------
-        | Wajib lewat route kepsek.profil.photo, bukan guru.profil.photo.
-        | Query v digunakan agar foto tidak tertahan cache lama saat akun berganti.
-        */
-        $fotoVersion = md5(
-            (string) ($user?->sia_user_id ?? '') . '|' .
-            (string) ($user?->id ?? '') . '|' .
-            (string) ($user?->updated_at ?? '')
-        );
+        $kepsekNuptk = trim((string) env('KEPSEK_NUPTK', '43265128'));
+        $authIdentifier = trim((string) ($user?->sia_user_id ?? ''));
 
-        $fotoUser = RouteFacade::has('kepsek.profil.photo')
-            ? route('kepsek.profil.photo', ['v' => $fotoVersion])
-            : $defaultFoto;
+        $kepsekApi = null;
+
+        try {
+            /** @var \App\Services\SiaClient $sia */
+            $sia = app(\App\Services\SiaClient::class);
+
+            $candidateKeys = collect([
+                $authIdentifier !== '' ? $authIdentifier : null,
+                $kepsekNuptk !== '' ? $kepsekNuptk : null,
+            ])->filter()->unique()->values();
+
+            foreach ($candidateKeys as $key) {
+                $resp = $sia->getGuruByKey($key);
+
+                if (
+                    is_array($resp)
+                    && (($resp['status'] ?? null) === true || ($resp['success'] ?? null) === true)
+                    && !empty($resp['data'])
+                    && is_array($resp['data'])
+                ) {
+                    $kepsekApi = (object) $resp['data'];
+                    break;
+                }
+            }
+        } catch (\Throwable $e) {
+            $kepsekApi = null;
+        }
+
+        if ($kepsekApi && !empty($kepsekApi->nama)) {
+            $namaUser = $kepsekApi->nama;
+        }
+
+        $resolveKepsekFoto = function ($kepsekApi = null) use ($defaultFoto, $user) {
+            $candidateValues = [
+                data_get($kepsekApi, 'foto_url'),
+                data_get($kepsekApi, 'photo_url'),
+                data_get($kepsekApi, 'avatar'),
+                data_get($kepsekApi, 'foto'),
+                data_get($kepsekApi, 'photo'),
+                data_get($kepsekApi, 'gambar'),
+                data_get($kepsekApi, 'image'),
+            ];
+
+            foreach ($candidateValues as $value) {
+                if (!is_scalar($value)) {
+                    continue;
+                }
+
+                $foto = trim((string) $value);
+
+                if ($foto === '' || $foto === '-') {
+                    continue;
+                }
+
+                if (preg_match('/^https?:\/\//i', $foto)) {
+                    $version = md5(
+                        (string) ($user?->sia_user_id ?? '') . '|' .
+                        (string) ($user?->id ?? '') . '|' .
+                        (string) ($user?->updated_at ?? '') . '|' .
+                        (string) data_get($kepsekApi, 'updated_at', '') . '|' .
+                        $foto
+                    );
+
+                    return $foto . (str_contains($foto, '?') ? '&' : '?') . 'v=' . $version;
+                }
+
+                $foto = str_replace('\\', '/', $foto);
+                $foto = preg_replace('#/+#', '/', $foto);
+                $foto = ltrim($foto, '/');
+
+                $basename = basename($foto);
+
+                $localCandidates = [
+                    $foto,
+                    'foto_guru/' . $basename,
+                    'sia/' . $foto,
+                    'sia/foto_guru/' . $basename,
+                    'storage/' . $foto,
+                    'storage/foto_guru/' . $basename,
+                    'storage/sia/foto_guru/' . $basename,
+                ];
+
+                foreach (array_unique(array_filter($localCandidates)) as $relativePath) {
+                    if (is_file(public_path($relativePath))) {
+                        return asset($relativePath);
+                    }
+                }
+
+                $siaPublicUrl = rtrim((string) (config('services.sia.public_url') ?: config('services.sia.base_url')), '/');
+
+                if ($siaPublicUrl !== '') {
+                    if (str_starts_with($foto, 'storage/')) {
+                        return $siaPublicUrl . '/' . $foto;
+                    }
+
+                    if (str_starts_with($foto, 'foto_guru/')) {
+                        return $siaPublicUrl . '/storage/' . $foto;
+                    }
+
+                    return $siaPublicUrl . '/storage/foto_guru/' . $basename;
+                }
+            }
+
+            if (RouteFacade::has('kepsek.profil.photo')) {
+                $fotoVersion = md5(
+                    (string) ($user?->sia_user_id ?? '') . '|' .
+                    (string) ($user?->id ?? '') . '|' .
+                    (string) ($user?->updated_at ?? '')
+                );
+
+                return route('kepsek.profil.photo', ['v' => $fotoVersion]);
+            }
+
+            return $defaultFoto;
+        };
+
+        $fotoUser = $resolveKepsekFoto($kepsekApi);
     @endphp
 
     <div class="max-w-screen-2xl mx-auto flex h-full items-center justify-between px-4 md:px-6">
@@ -83,7 +187,7 @@
 
                 <div
                     class="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-blue-50 via-sky-50 to-cyan-50 text-blue-700 shadow-sm transition group-hover:border-blue-200 group-hover:bg-blue-50">
-                    <img src="{{ $fotoUser }}" alt="Foto {{ $namaUser }}" class="h-full w-full object-cover"
+                    <img src="{{ $fotoUser }}" alt="Foto {{ $namaUser }}" class="h-full w-full object-cover object-top"
                         onerror="this.onerror=null;this.src='{{ $defaultFoto }}';">
                 </div>
 
@@ -103,7 +207,8 @@
                     <div class="flex items-center gap-3">
                         <div
                             class="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-blue-100 via-sky-100 to-cyan-100 text-blue-700 shadow-sm">
-                            <img src="{{ $fotoUser }}" alt="Foto {{ $namaUser }}" class="h-full w-full object-cover"
+                            <img src="{{ $fotoUser }}" alt="Foto {{ $namaUser }}"
+                                class="h-full w-full object-cover object-top"
                                 onerror="this.onerror=null;this.src='{{ $defaultFoto }}';">
                         </div>
                         <div class="min-w-0">

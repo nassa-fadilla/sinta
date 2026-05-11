@@ -3,6 +3,8 @@
 
 @section('content')
     @php
+        use Illuminate\Support\Facades\Route as RouteFacade;
+
         $u = auth()->user();
         $guru = isset($guruApi) && is_array($guruApi) ? (object) $guruApi : null;
 
@@ -20,11 +22,102 @@
         $alamat = $guru->alamat ?? '-';
         $noHp = $guru->no_hp ?? '-';
 
-        $fotoSrc = route('kepsek.profil.photo');
-        $previewFoto = !empty($guru?->foto_url) || !empty($guru?->foto);
         $defaultFoto = file_exists(public_path('images/default-user.png'))
             ? asset('images/default-user.png')
             : asset('images/default-siswa.png');
+
+        $resolveKepsekFoto = function ($guru = null) use ($defaultFoto, $u) {
+            $candidateValues = [
+                data_get($guru, 'foto_url'),
+                data_get($guru, 'photo_url'),
+                data_get($guru, 'avatar'),
+                data_get($guru, 'foto'),
+                data_get($guru, 'photo'),
+                data_get($guru, 'gambar'),
+                data_get($guru, 'image'),
+            ];
+
+            foreach ($candidateValues as $value) {
+                if (!is_scalar($value)) {
+                    continue;
+                }
+
+                $foto = trim((string) $value);
+
+                if ($foto === '' || $foto === '-') {
+                    continue;
+                }
+
+                if (preg_match('/^https?:\/\//i', $foto)) {
+                    $version = md5(
+                        (string) ($u?->sia_user_id ?? '') . '|' .
+                        (string) ($u?->id ?? '') . '|' .
+                        (string) ($u?->updated_at ?? '') . '|' .
+                        (string) data_get($guru, 'updated_at', '') . '|' .
+                        $foto
+                    );
+
+                    return $foto . (str_contains($foto, '?') ? '&' : '?') . 'v=' . $version;
+                }
+
+                $foto = str_replace('\\', '/', $foto);
+                $foto = preg_replace('#/+#', '/', $foto);
+                $foto = ltrim($foto, '/');
+
+                $basename = basename($foto);
+
+                $localCandidates = [
+                    $foto,
+                    'foto_guru/' . $basename,
+                    'sia/' . $foto,
+                    'sia/foto_guru/' . $basename,
+                    'storage/' . $foto,
+                    'storage/foto_guru/' . $basename,
+                    'storage/sia/foto_guru/' . $basename,
+                ];
+
+                foreach (array_unique(array_filter($localCandidates)) as $relativePath) {
+                    if (is_file(public_path($relativePath))) {
+                        return asset($relativePath);
+                    }
+                }
+
+                $siaPublicUrl = rtrim((string) (config('services.sia.public_url') ?: config('services.sia.base_url')), '/');
+
+                if ($siaPublicUrl !== '') {
+                    if (str_starts_with($foto, 'storage/')) {
+                        return $siaPublicUrl . '/' . $foto;
+                    }
+
+                    if (str_starts_with($foto, 'foto_guru/')) {
+                        return $siaPublicUrl . '/storage/' . $foto;
+                    }
+
+                    return $siaPublicUrl . '/storage/foto_guru/' . $basename;
+                }
+            }
+
+            if (RouteFacade::has('kepsek.profil.photo')) {
+                $fotoVersion = md5(
+                    (string) ($u?->sia_user_id ?? '') . '|' .
+                    (string) ($u?->id ?? '') . '|' .
+                    (string) ($u?->updated_at ?? '')
+                );
+
+                return route('kepsek.profil.photo', ['v' => $fotoVersion]);
+            }
+
+            return $defaultFoto;
+        };
+
+        $fotoSrc = $resolveKepsekFoto($guru);
+
+        $previewFoto = !empty($guru?->foto_url)
+            || !empty($guru?->photo_url)
+            || !empty($guru?->avatar)
+            || !empty($guru?->foto)
+            || !empty($guru?->photo)
+            || RouteFacade::has('kepsek.profil.photo');
     @endphp
 
     <div x-data="{ openFoto: false }" class="space-y-6">

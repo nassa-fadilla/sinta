@@ -8,7 +8,7 @@
     $kepsekNuptk = trim((string) env('KEPSEK_NUPTK', '43265128'));
     $authIdentifier = trim((string) ($u?->sia_user_id ?? ''));
 
-    $kepsekApi = isset($kepsekApi) && is_array($kepsekApi) ? (object) $kepsekApi : null;
+    $kepsekApi = isset($kepsekApi) && is_array($kepsekApi) ? (object) $kepsekApi : ($kepsekApi ?? null);
 
     if (!$kepsekApi) {
         try {
@@ -34,7 +34,7 @@
                 }
             }
         } catch (\Throwable $e) {
-            // diamkan
+            $kepsekApi = null;
         }
     }
 
@@ -45,7 +45,91 @@
         ? asset('images/default-user.png')
         : asset('images/logo-sma2.png');
 
-    $fotoPath = route('kepsek.profil.photo');
+    $resolveKepsekFoto = function ($kepsekApi = null) use ($defaultFoto, $u) {
+        $candidateValues = [
+            data_get($kepsekApi, 'foto_url'),
+            data_get($kepsekApi, 'photo_url'),
+            data_get($kepsekApi, 'avatar'),
+            data_get($kepsekApi, 'foto'),
+            data_get($kepsekApi, 'photo'),
+            data_get($kepsekApi, 'gambar'),
+            data_get($kepsekApi, 'image'),
+        ];
+
+        foreach ($candidateValues as $value) {
+            if (!is_scalar($value)) {
+                continue;
+            }
+
+            $foto = trim((string) $value);
+
+            if ($foto === '' || $foto === '-') {
+                continue;
+            }
+
+            if (preg_match('/^https?:\/\//i', $foto)) {
+                $version = md5(
+                    (string) ($u?->sia_user_id ?? '') . '|' .
+                    (string) ($u?->id ?? '') . '|' .
+                    (string) ($u?->updated_at ?? '') . '|' .
+                    (string) data_get($kepsekApi, 'updated_at', '') . '|' .
+                    $foto
+                );
+
+                return $foto . (str_contains($foto, '?') ? '&' : '?') . 'v=' . $version;
+            }
+
+            $foto = str_replace('\\', '/', $foto);
+            $foto = preg_replace('#/+#', '/', $foto);
+            $foto = ltrim($foto, '/');
+
+            $basename = basename($foto);
+
+            $localCandidates = [
+                $foto,
+                'foto_guru/' . $basename,
+                'sia/' . $foto,
+                'sia/foto_guru/' . $basename,
+                'storage/' . $foto,
+                'storage/foto_guru/' . $basename,
+                'storage/sia/foto_guru/' . $basename,
+            ];
+
+            foreach (array_unique(array_filter($localCandidates)) as $relativePath) {
+                if (is_file(public_path($relativePath))) {
+                    return asset($relativePath);
+                }
+            }
+
+            $siaPublicUrl = rtrim((string) (config('services.sia.public_url') ?: config('services.sia.base_url')), '/');
+
+            if ($siaPublicUrl !== '') {
+                if (str_starts_with($foto, 'storage/')) {
+                    return $siaPublicUrl . '/' . $foto;
+                }
+
+                if (str_starts_with($foto, 'foto_guru/')) {
+                    return $siaPublicUrl . '/storage/' . $foto;
+                }
+
+                return $siaPublicUrl . '/storage/foto_guru/' . $basename;
+            }
+        }
+
+        if (RouteFacade::has('kepsek.profil.photo')) {
+            $fotoVersion = md5(
+                (string) ($u?->sia_user_id ?? '') . '|' .
+                (string) ($u?->id ?? '') . '|' .
+                (string) ($u?->updated_at ?? '')
+            );
+
+            return route('kepsek.profil.photo', ['v' => $fotoVersion]);
+        }
+
+        return $defaultFoto;
+    };
+
+    $fotoPath = $resolveKepsekFoto($kepsekApi);
 
     $singleItems = [
         [
@@ -163,7 +247,7 @@
             <div class="flex flex-col items-center text-center">
                 <div
                     class="flex h-24 w-24 items-center justify-center overflow-hidden rounded-[1.75rem] border-2 border-sky-500 bg-white shadow-[0_10px_24px_rgba(59,130,246,0.12)]">
-                    <img src="{{ $fotoPath }}" alt="Foto Kepala Sekolah" class="h-full w-full object-cover"
+                    <img src="{{ $fotoPath }}" alt="Foto Kepala Sekolah" class="h-full w-full object-cover object-top"
                         loading="lazy" onerror="this.onerror=null;this.src='{{ $defaultFoto }}';">
                 </div>
 
@@ -222,18 +306,18 @@
                     @endphp
 
                     <li x-data="{
-                                open: {{ $groupActive ? 'true' : 'false' }},
-                                toggle() {
-                                    this.open = !this.open;
-                                    try { localStorage.setItem('{{ $persistKey }}', this.open ? '1' : '0'); } catch(e) {}
-                                }
-                            }" x-init="(() => {
-                                try {
-                                    const v = localStorage.getItem('{{ $persistKey }}');
-                                    if (v === '1' || v === '0') open = (v === '1');
-                                    @if ($groupActive) open = true; @endif
-                                } catch(e) {}
-                            })()">
+                                    open: {{ $groupActive ? 'true' : 'false' }},
+                                    toggle() {
+                                        this.open = !this.open;
+                                        try { localStorage.setItem('{{ $persistKey }}', this.open ? '1' : '0'); } catch(e) {}
+                                    }
+                                }" x-init="(() => {
+                                    try {
+                                        const v = localStorage.getItem('{{ $persistKey }}');
+                                        if (v === '1' || v === '0') open = (v === '1');
+                                        @if ($groupActive) open = true; @endif
+                                    } catch(e) {}
+                                })()">
                         <button type="button" @click="toggle()"
                             class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-slate-700 transition hover:bg-slate-50">
                             <div class="flex min-w-0 items-center gap-3">
