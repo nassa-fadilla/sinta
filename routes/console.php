@@ -18,7 +18,7 @@ Artisan::command('inspire', function () {
 */
 
 Schedule::command('peringatan:kirim')
-    ->everyMinute()
+    ->everyThirtyMinutes()
     ->withoutOverlapping();
 
 Schedule::command('pengumuman:kirim')
