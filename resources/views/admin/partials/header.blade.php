@@ -52,9 +52,11 @@
             <path stroke-linecap="round" stroke-linejoin="round"
               d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
           </svg>
-          {{-- Badge jumlah --}}
-          <span x-show="total > 0" x-text="total > 9 ? '9+' : total" x-cloak
-            class="absolute -top-1 -right-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white leading-none"></span>
+          {{-- Titik merah (pulse) — muncul saat ada notif --}}
+          <span x-show="total > 0" x-cloak class="absolute -top-1 -right-1 flex h-3 w-3">
+            <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
+            <span class="relative inline-flex h-3 w-3 rounded-full bg-red-500"></span>
+          </span>
         </button>
 
         {{-- Dropdown panel notifikasi --}}
@@ -68,8 +70,8 @@
           <div class="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-3">
             <div>
               <p class="text-sm font-semibold text-slate-800">Notifikasi</p>
-              <p class="text-[11px] text-slate-500" x-text="total > 0 ? total + ' item baru' : 'Semua sudah dibaca'">
-              </p>
+              <p class="text-[11px] text-slate-500"
+                x-text="total > 0 ? total + ' notifikasi baru' : 'Semua sudah terpantau'"></p>
             </div>
             {{-- Indikator loading --}}
             <div x-show="loading"
