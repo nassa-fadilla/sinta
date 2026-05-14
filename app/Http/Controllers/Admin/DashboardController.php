@@ -12,7 +12,6 @@ class DashboardController extends Controller
 {
     public function index(SiaClient $sia)
     {
-        session(['admin_sidebar_last_seen' => now()]);
         /*
         |--------------------------------------------------------------------------
         | 1. SUMMARY DARI SIA + TAHUN AJARAN AKTIF

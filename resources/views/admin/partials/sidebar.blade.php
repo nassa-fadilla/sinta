@@ -1,83 +1,11 @@
 @php
   use Illuminate\Support\Facades\Route as RouteFacade;
-  use Carbon\Carbon;
 
   $isActive = fn($pattern) => request()->routeIs($pattern);
 
   $hrefOf = function ($name) {
     return ($name && RouteFacade::has($name)) ? route($name) : '#';
   };
-
-  /*
-  |--------------------------------------------------------------------------
-  | SIDEBAR NOTIFICATION
-  |--------------------------------------------------------------------------
-  | Data Master & Akademik -> dari integrasi SIA API
-  | Pengumuman, Chat, Survei -> fitur internal SINTA
-  */
-
-  $lastSeen = session('admin_sidebar_last_seen', now()->subDays(30));
-
-  try {
-
-    /*
-    |--------------------------------------------------------------------------
-    | DATA SIA
-    |--------------------------------------------------------------------------
-    | Sesuaikan variable API dari controller masing-masing
-    */
-
-    $masterUpdated = collect($siaMasterUpdates ?? [])->contains(
-      fn($item) =>
-      isset($item['updated_at']) &&
-      Carbon::parse($item['updated_at'])->gt($lastSeen)
-    );
-
-    $akademikUpdated = collect($siaAkademikUpdates ?? [])->contains(
-      fn($item) =>
-      isset($item['updated_at']) &&
-      Carbon::parse($item['updated_at'])->gt($lastSeen)
-    );
-
-    $kegiatanUpdated = collect($siaEkskulUpdates ?? [])->contains(
-      fn($item) =>
-      isset($item['updated_at']) &&
-      Carbon::parse($item['updated_at'])->gt($lastSeen)
-    );
-
-  } catch (\Throwable $e) {
-
-    $masterUpdated = false;
-    $akademikUpdated = false;
-    $kegiatanUpdated = false;
-  }
-
-  /*
-  |--------------------------------------------------------------------------
-  | FITUR INTERNAL SINTA
-  |--------------------------------------------------------------------------
-  */
-
-  $pengumumanUpdated = \App\Models\Pengumuman::where('created_at', '>', $lastSeen)->exists();
-
-  $chatUpdated = class_exists(\App\Models\ChatMessage::class)
-    ? \App\Models\ChatMessage::where('created_at', '>', $lastSeen)
-      ->where('sender_role', 'ortu')
-      ->exists()
-    : false;
-
-  $surveiUpdated = class_exists(\App\Models\Survei::class)
-    ? \App\Models\Survei::where('created_at', '>', $lastSeen)->exists()
-    : false;
-
-  $sidebarNotif = [
-    'master' => $masterUpdated,
-    'akademik' => $akademikUpdated,
-    'kegiatan' => $kegiatanUpdated,
-    'pengumuman' => $pengumumanUpdated,
-    'chat' => $chatUpdated,
-    'survei' => $surveiUpdated,
-  ];
 
   $groups = [
     [
@@ -129,15 +57,10 @@
   $isGroupActive = function ($group) {
     foreach ($group['items'] as $it) {
       $pattern = $it['route'];
-
-      if (
-        request()->routeIs($pattern) ||
-        request()->routeIs(str_replace('.index', '.*', $pattern))
-      ) {
+      if (request()->routeIs($pattern) || request()->routeIs(str_replace('.index', '.*', $pattern))) {
         return true;
       }
     }
-
     return false;
   };
 @endphp
@@ -158,7 +81,6 @@
           <div class="truncate text-[11px] font-semibold tracking-[0.28em] text-slate-800">
             ADMIN SINTA
           </div>
-
           <div class="truncate text-xs text-slate-500">
             SMA Negeri 2 Temanggung
           </div>
@@ -173,24 +95,17 @@
         {{-- Single menu --}}
         @foreach($singleItems as $it)
           @php $active = $isActive($it['route']); @endphp
-
           <li>
             <a href="{{ $hrefOf($it['route']) }}" class="group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition
-                {{ $active ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50' }}">
-
+                      {{ $active ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50' }}">
               <span class="inline-flex h-9 w-9 items-center justify-center rounded-xl
-                  {{ $active ? 'bg-blue-100 text-blue-600' : 'text-slate-500' }}">
-
+                        {{ $active ? 'bg-blue-100 text-blue-600' : 'text-slate-500' }}">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none"
                   stroke="currentColor" stroke-width="1.9">
-
                   <path d="{{ $it['icon'] }}" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
               </span>
-
-              <span class="text-sm font-medium">
-                {{ $it['label'] }}
-              </span>
+              <span class="text-sm font-medium">{{ $it['label'] }}</span>
             </a>
           </li>
         @endforeach
@@ -200,123 +115,58 @@
           @php
             $groupActive = $isGroupActive($g);
             $persistKey = 'admin_sidebar_open_' . $g['key'];
-
-            $groupHasNotif =
-              ($g['key'] === 'master' && $sidebarNotif['master']) ||
-              ($g['key'] === 'akademik' && $sidebarNotif['akademik']) ||
-              ($g['key'] === 'kegiatan' && (
-                $sidebarNotif['kegiatan'] ||
-                $sidebarNotif['pengumuman']
-              )) ||
-              ($g['key'] === 'interaksi' && (
-                $sidebarNotif['chat'] ||
-                $sidebarNotif['survei']
-              ));
           @endphp
 
           <li x-data="{
                       open: {{ $groupActive ? 'true' : 'false' }},
                       toggle() {
                         this.open = !this.open;
-                        try {
-                          localStorage.setItem('{{ $persistKey }}', this.open ? '1' : '0');
-                        } catch(e){}
+                        try { localStorage.setItem('{{ $persistKey }}', this.open ? '1' : '0'); } catch(e){}
                       }
                     }" x-init="(() => {
-                  try {
-                    const v = localStorage.getItem('{{ $persistKey }}');
-
-                    if (v === '1' || v === '0') {
-                      open = (v === '1');
-                    }
-
-                    @if($groupActive)
-                      open = true;
-                    @endif
-
-                  } catch(e){}
-                })()">
-
+                      try {
+                        const v = localStorage.getItem('{{ $persistKey }}');
+                        if (v === '1' || v === '0') open = (v === '1');
+                        @if($groupActive) open = true; @endif
+                      } catch(e){}
+                    })()">
             <button type="button" @click="toggle()"
               class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-slate-700 transition hover:bg-slate-50">
-
               <div class="flex items-center gap-3 min-w-0">
-
-                <span class="inline-flex h-9 w-9 items-center justify-center rounded-xl
-                    {{ $groupActive ? 'bg-slate-100 text-blue-600' : 'text-slate-500' }}">
-
+                <span
+                  class="inline-flex h-9 w-9 items-center justify-center rounded-xl {{ $groupActive ? 'bg-slate-100 text-blue-600' : 'text-slate-500' }}">
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none"
                     stroke="currentColor" stroke-width="1.9">
-
                     <path d="{{ $g['icon'] }}" stroke-linecap="round" stroke-linejoin="round" />
                   </svg>
                 </span>
-
-                <div class="flex items-center gap-2 min-w-0">
-                  <span class="truncate text-sm font-medium">
-                    {{ $g['label'] }}
-                  </span>
-
-                  @if($groupHasNotif)
-                    <span class="relative flex h-2.5 w-2.5 shrink-0">
-                      <span
-                        class="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75"></span>
-                      <span class="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-500"></span>
-                    </span>
-                  @endif
-                </div>
+                <span class="truncate text-sm font-medium">{{ $g['label'] }}</span>
               </div>
 
               <svg xmlns="http://www.w3.org/2000/svg"
                 class="h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200"
                 :class="open ? 'rotate-180 text-blue-600' : ''" viewBox="0 0 20 20" fill="currentColor">
-
                 <path fill-rule="evenodd"
                   d="M5.23 7.21a.75.75 0 011.06.02L10 11.085l3.71-3.855a.75.75 0 111.08 1.04l-4.24 4.405a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" />
               </svg>
             </button>
 
             <ul class="mt-1 ml-11 space-y-1" x-show="open" x-collapse>
-
               @foreach($g['items'] as $it)
                 @php
-                  $active =
-                    $isActive($it['route']) ||
-                    $isActive(str_replace('.index', '.*', $it['route']));
-
-                  $itemHasNotif =
-                    ($it['route'] === 'admin.sia-master.ekskul.index' && $sidebarNotif['kegiatan']) ||
-                    ($it['route'] === 'admin.pengumuman.index' && $sidebarNotif['pengumuman']) ||
-                    ($it['route'] === 'admin.chat.index' && $sidebarNotif['chat']) ||
-                    ($it['route'] === 'admin.survei.index' && $sidebarNotif['survei']);
+                  $active = $isActive($it['route']) || $isActive(str_replace('.index', '.*', $it['route']));
                 @endphp
-
                 <li>
                   <a href="{{ $hrefOf($it['route']) }}"
                     class="group flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] transition
-                        {{ $active ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900' }}">
-
+                                    {{ $active ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900' }}">
                     <span class="{{ $active ? 'text-blue-600' : 'text-slate-400' }}">
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none"
                         stroke="currentColor" stroke-width="1.8">
-
                         <path d="{{ $it['icon'] }}" stroke-linecap="round" stroke-linejoin="round" />
                       </svg>
                     </span>
-
-                    <div class="flex items-center gap-2">
-                      <span class="font-medium">
-                        {{ $it['label'] }}
-                      </span>
-
-                      @if($itemHasNotif)
-                        <span class="relative flex h-2 w-2 shrink-0">
-                          <span
-                            class="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75"></span>
-                          <span class="relative inline-flex h-2 w-2 rounded-full bg-rose-500"></span>
-                        </span>
-                      @endif
-                    </div>
+                    <span class="font-medium">{{ $it['label'] }}</span>
                   </a>
                 </li>
               @endforeach
@@ -332,7 +182,6 @@
         <p class="text-xs font-semibold tracking-[0.16em] text-blue-700">
           SMAN 2 TEMANGGUNG
         </p>
-
         <p class="mt-1 text-xs text-slate-500">
           © {{ date('Y') }} SINTA
         </p>
