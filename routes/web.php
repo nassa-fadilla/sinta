@@ -80,16 +80,6 @@ Route::middleware(['auth', 'role:admin'])
         // Dashboard Admin SINTA
         Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
-        Route::get('/sidebar-notifications', function () {
-
-            return response()->json([
-                'chat' => 1,
-                'survei' => 1,
-                'pengumuman' => 0,
-            ]);
-
-        })->name('sidebar.notifications');
-
         /*
         |--------------------------------------------------------------------------
         | SIA MASTER (READ ONLY)
