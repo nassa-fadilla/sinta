@@ -100,16 +100,37 @@
 
             {{-- ALERT --}}
             @if(session('ok'))
-                <div class="border-b border-emerald-100 bg-emerald-50 px-5 py-3 text-sm text-emerald-700 md:px-6">
+                <div id="alert-success"
+                    class="border-b border-emerald-100 bg-emerald-50 px-5 py-3 text-sm text-emerald-700 md:px-6 transition-opacity duration-500">
                     {{ session('ok') }}
                 </div>
             @endif
 
             @if(session('no'))
-                <div class="border-b border-rose-100 bg-rose-50 px-5 py-3 text-sm text-rose-700 md:px-6">
+                <div id="alert-error"
+                    class="border-b border-rose-100 bg-rose-50 px-5 py-3 text-sm text-rose-700 md:px-6 transition-opacity duration-500">
                     {{ session('no') }}
                 </div>
             @endif
+
+            <script>
+                function hideAlert(id) {
+                    const alertBox = document.getElementById(id);
+
+                    if (alertBox) {
+                        alertBox.classList.add('opacity-0');
+
+                        setTimeout(() => {
+                            alertBox.remove();
+                        }, 500);
+                    }
+                }
+
+                setTimeout(() => {
+                    hideAlert('alert-success');
+                    hideAlert('alert-error');
+                }, 5000);
+            </script>
 
             {{-- TABLE --}}
             <div class="overflow-x-auto">
