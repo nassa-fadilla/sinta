@@ -80,6 +80,9 @@ Route::middleware(['auth', 'role:admin'])
         // Dashboard Admin SINTA
         Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
+        Route::get('/sidebar-notifications', [DashboardController::class, 'sidebarNotifications'])
+            ->name('sidebar.notifications');
+
         /*
         |--------------------------------------------------------------------------
         | SIA MASTER (READ ONLY)
@@ -195,9 +198,6 @@ Route::middleware(['auth', 'role:admin'])
 
         Route::get('survei/{survei}/export/pdf', [SurveiController::class, 'exportPdf'])
             ->name('survei.export.pdf');
-
-        Route::get('/sidebar-notifications', [DashboardController::class, 'sidebarNotifications'])
-            ->name('sidebar.notifications');
     });
 
 // ================== WEBHOOKS ==================
