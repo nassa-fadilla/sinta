@@ -80,6 +80,10 @@ Route::middleware(['auth', 'role:admin'])
         // Dashboard Admin SINTA
         Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
+        // Notifikasi real-time admin (polling endpoint)
+        Route::get('/notifikasi', [DashboardController::class, 'getNotifikasi'])->name('notifikasi');
+        Route::post('/notifikasi/reset-sia', [DashboardController::class, 'resetNotifikasiSia'])->name('notifikasi.reset-sia');
+
         /*
         |--------------------------------------------------------------------------
         | SIA MASTER (READ ONLY)

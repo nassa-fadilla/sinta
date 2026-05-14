@@ -4,12 +4,187 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Pengumuman;
+use App\Models\SurveiRespon;
 use App\Services\SiaClient;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
+    /*
+    |--------------------------------------------------------------------------
+    | NOTIFIKASI REAL-TIME ADMIN
+    |--------------------------------------------------------------------------
+    | Endpoint polling: GET /admin/notifikasi
+    | Dipanggil tiap 30 detik oleh JS di header admin.
+    | Tidak menyimpan tabel baru — memakai tabel yang sudah ada + Cache.
+    */
+    public function getNotifikasi(SiaClient $sia): JsonResponse
+    {
+        $items = [];
+
+        // ── 1. CHAT ORTU BELUM DIBACA ────────────────────────────────────────
+        // Hitung total pesan masuk (direction='in') dari ortu yang belum di-read.
+        $chatUnread = DB::table('chat_messages')
+            ->where('direction', 'in')
+            ->where('sender_type', 'parent')
+            ->whereNull('read_at')
+            ->count();
+
+        if ($chatUnread > 0) {
+            $items[] = [
+                'id' => 'chat',
+                'icon' => 'chat',
+                'judul' => 'Chat Ortu',
+                'pesan' => $chatUnread . ' pesan baru belum dibaca',
+                'url' => route('admin.chat.index'),
+                'waktu' => null,
+            ];
+        }
+
+        // ── 2. PENGUMUMAN PENDING (menunggu persetujuan Kepsek) ──────────────
+        // Pengumuman dengan status 'draft' = sudah diajukan, belum diproses Kepsek.
+        $pengumumanPending = Pengumuman::where('status', 'draft')->count();
+
+        if ($pengumumanPending > 0) {
+            $items[] = [
+                'id' => 'pengumuman_pending',
+                'icon' => 'megaphone',
+                'judul' => 'Pengumuman Menunggu',
+                'pesan' => $pengumumanPending . ' pengumuman menunggu persetujuan Kepsek',
+                'url' => route('admin.pengumuman.index', ['status' => 'draft']),
+                'waktu' => null,
+            ];
+        }
+
+        // ── 3. PENGUMUMAN BARU DISETUJUI / DITOLAK KEPSEK ───────────────────
+        // Pengumuman yang statusnya berubah menjadi approved/rejected dalam 24 jam terakhir.
+        $pengumumanDiproses = Pengumuman::whereIn('status', ['approved', 'rejected'])
+            ->where('approved_at', '>=', now()->subDay())
+            ->orderByDesc('approved_at')
+            ->get(['id', 'judul', 'status', 'approved_at']);
+
+        foreach ($pengumumanDiproses as $p) {
+            $label = $p->status === 'approved' ? 'disetujui' : 'ditolak';
+            $items[] = [
+                'id' => 'pengumuman_' . $p->id,
+                'icon' => $p->status === 'approved' ? 'check' : 'x',
+                'judul' => 'Pengumuman ' . ucfirst($label),
+                'pesan' => '"' . \Illuminate\Support\Str::limit($p->judul, 50) . '" ' . $label . ' oleh Kepsek',
+                'url' => route('admin.pengumuman.show', $p->id),
+                'waktu' => $p->approved_at?->diffForHumans(),
+            ];
+        }
+
+        // ── 4. SURVEI: RESPON BARU DARI ORTU ────────────────────────────────
+        // Respon survei yang masuk dalam 24 jam terakhir.
+        $surveiResponBaru = SurveiRespon::with('survei:id,judul')
+            ->where('created_at', '>=', now()->subDay())
+            ->latest()
+            ->get();
+
+        if ($surveiResponBaru->isNotEmpty()) {
+            // Kelompokkan per survei agar tidak spam notifikasi
+            $grouped = $surveiResponBaru->groupBy('survei_id');
+            foreach ($grouped as $surveiId => $responList) {
+                $namasurvei = $responList->first()?->survei?->judul ?? 'Survei';
+                $jml = $responList->count();
+                $items[] = [
+                    'id' => 'survei_' . $surveiId,
+                    'icon' => 'clipboard',
+                    'judul' => 'Survei Diisi',
+                    'pesan' => $jml . ' ortu mengisi "' . \Illuminate\Support\Str::limit($namasurvei, 40) . '"',
+                    'url' => route('admin.survei.show', $surveiId),
+                    'waktu' => $responList->first()?->created_at?->diffForHumans(),
+                ];
+            }
+        }
+
+        // ── 5. DATA BARU DARI SIA (siswa / guru) ────────────────────────────
+        // Bandingkan total_siswa & total_guru dari API SIA dengan snapshot di Cache.
+        // Cache key disimpan tanpa expiry — hanya di-reset saat admin klik "Lihat".
+        // Jika angka berubah = ada data baru masuk di SIA.
+        try {
+            $summaryNow = $sia->dashboardSummary();
+            $totalSiswaNow = (int) (
+                $summaryNow['data']['total_siswa']
+                ?? $summaryNow['data']['siswa']
+                ?? 0
+            );
+            $totalGuruNow = (int) (
+                $summaryNow['data']['total_guru']
+                ?? $summaryNow['data']['guru']
+                ?? 0
+            );
+
+            $snapSiswa = (int) Cache::get('sinta.notif.sia_total_siswa', $totalSiswaNow);
+            $snapGuru = (int) Cache::get('sinta.notif.sia_total_guru', $totalGuruNow);
+
+            // Inisialisasi snapshot pertama kali
+            if (!Cache::has('sinta.notif.sia_total_siswa')) {
+                Cache::forever('sinta.notif.sia_total_siswa', $totalSiswaNow);
+            }
+            if (!Cache::has('sinta.notif.sia_total_guru')) {
+                Cache::forever('sinta.notif.sia_total_guru', $totalGuruNow);
+            }
+
+            $selisihSiswa = $totalSiswaNow - $snapSiswa;
+            $selisihGuru = $totalGuruNow - $snapGuru;
+
+            if ($selisihSiswa > 0) {
+                $items[] = [
+                    'id' => 'sia_siswa',
+                    'icon' => 'users',
+                    'judul' => 'Data Siswa Baru',
+                    'pesan' => $selisihSiswa . ' data siswa baru terdeteksi dari SIA',
+                    'url' => route('admin.sia-master.siswa.index'),
+                    'waktu' => null,
+                ];
+            }
+
+            if ($selisihGuru > 0) {
+                $items[] = [
+                    'id' => 'sia_guru',
+                    'icon' => 'user-check',
+                    'judul' => 'Data Guru Baru',
+                    'pesan' => $selisihGuru . ' data guru baru terdeteksi dari SIA',
+                    'url' => route('admin.sia-master.guru.index'),
+                    'waktu' => null,
+                ];
+            }
+        } catch (\Throwable) {
+            // API SIA tidak tersedia, lewati notifikasi SIA
+        }
+
+        return response()->json([
+            'total' => count($items),
+            'items' => $items,
+        ]);
+    }
+
+    /**
+     * Tandai snapshot SIA sudah dilihat (reset ke nilai terkini).
+     * Dipanggil saat admin klik notifikasi data SIA.
+     */
+    public function resetNotifikasiSia(SiaClient $sia): JsonResponse
+    {
+        try {
+            $summary = $sia->dashboardSummary();
+            Cache::forever('sinta.notif.sia_total_siswa', (int) (
+                $summary['data']['total_siswa'] ?? $summary['data']['siswa'] ?? 0
+            ));
+            Cache::forever('sinta.notif.sia_total_guru', (int) (
+                $summary['data']['total_guru'] ?? $summary['data']['guru'] ?? 0
+            ));
+        } catch (\Throwable) {
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
     public function index(SiaClient $sia)
     {
         /*
