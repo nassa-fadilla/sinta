@@ -127,10 +127,10 @@
 
           <li>
             <a href="{{ $hrefOf($it['route']) }}" class="group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition
-                         {{ $active ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50' }}">
+                             {{ $active ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50' }}">
 
               <span class="inline-flex h-9 w-9 items-center justify-center rounded-xl
-                          {{ $active ? 'bg-blue-100 text-blue-600' : 'text-slate-500' }}">
+                              {{ $active ? 'bg-blue-100 text-blue-600' : 'text-slate-500' }}">
 
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none"
                   stroke="currentColor" stroke-width="1.9">
@@ -155,28 +155,28 @@
           @endphp
 
           <li x-data="{
-                        open: {{ $groupActive ? 'true' : 'false' }},
-                        toggle() {
-                          this.open = !this.open;
+                            open: {{ $groupActive ? 'true' : 'false' }},
+                            toggle() {
+                              this.open = !this.open;
 
-                          try {
-                            localStorage.setItem('{{ $persistKey }}', this.open ? '1' : '0');
-                          } catch(e){}
-                        }
-                      }" x-init="(() => {
-                        try {
-                          const v = localStorage.getItem('{{ $persistKey }}');
+                              try {
+                                localStorage.setItem('{{ $persistKey }}', this.open ? '1' : '0');
+                              } catch(e){}
+                            }
+                          }" x-init="(() => {
+                            try {
+                              const v = localStorage.getItem('{{ $persistKey }}');
 
-                          if (v === '1' || v === '0') {
-                            open = (v === '1');
-                          }
+                              if (v === '1' || v === '0') {
+                                open = (v === '1');
+                              }
 
-                          @if($groupActive)
-                            open = true;
-                          @endif
+                              @if($groupActive)
+                                open = true;
+                              @endif
 
-                        } catch(e){}
-                      })()">
+                            } catch(e){}
+                          })()">
 
             <button type="button" @click="toggle()"
               class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-slate-700 transition hover:bg-slate-50">
@@ -184,7 +184,7 @@
               <div class="flex items-center gap-3 min-w-0">
 
                 <span class="inline-flex h-9 w-9 items-center justify-center rounded-xl
-                            {{ $groupActive ? 'bg-slate-100 text-blue-600' : 'text-slate-500' }}">
+                                {{ $groupActive ? 'bg-slate-100 text-blue-600' : 'text-slate-500' }}">
 
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none"
                     stroke="currentColor" stroke-width="1.9">
@@ -220,7 +220,7 @@
                 <li>
                   <a href="{{ $hrefOf($it['route']) }}"
                     class="group flex items-center justify-between rounded-lg px-2.5 py-2 text-[13px] transition
-                                         {{ $active ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900' }}">
+                                                 {{ $active ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900' }}">
 
                     <div class="flex items-center gap-2">
 
