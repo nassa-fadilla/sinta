@@ -9,6 +9,74 @@
 
   @vite(['resources/css/app.css', 'resources/js/app.js'])
 
+  {{-- Fungsi global untuk Alpine x-data — HARUS sebelum
+  <script defer> Alpine--}}
+    <script>
+      function notifikasiAdmin() {
+      return {
+        buka: false,
+      loading: false,
+      total: 0,
+      items: [],
+      terakhirUpdate: '',
+      intervalId: null,
+      resetSiaUrl: '{{ route('admin.notifikasi.reset-sia') }}',
+      csrfToken: '{{ csrf_token() }}',
+
+      init() {
+        this.ambilNotifikasi();
+          this.intervalId = setInterval(() => this.ambilNotifikasi(), 30000);
+        },
+
+      async ambilNotifikasi() {
+        this.loading = true;
+      try {
+            const res = await fetch('{{ route('admin.notifikasi') }}', {
+        headers: {'X-Requested-With': 'XMLHttpRequest' }
+            });
+      if (!res.ok) return;
+      const data = await res.json();
+      this.total = data.total ?? 0;
+      this.items = data.items ?? [];
+      const now = new Date();
+      this.terakhirUpdate = now.getHours().toString().padStart(2,'0')
+      + ':' + now.getMinutes().toString().padStart(2,'0');
+          } catch(e) {
+        // abaikan error jaringan sementara
+      } finally {
+        this.loading = false;
+          }
+        },
+
+      toggle() {
+        this.buka = !this.buka;
+      if (this.buka) this.ambilNotifikasi();
+        },
+
+      tutup() {
+        this.buka = false;
+        },
+
+      klikItem(item) {
+        // Hapus item dari list supaya tidak numpuk setelah diklik
+        this.items = this.items.filter(i => i.id !== item.id);
+      this.total = this.items.length;
+      this.tutup();
+      // Kalau item SIA, reset snapshot cache juga
+      if (item.id === 'sia_siswa' || item.id === 'sia_guru') {
+        fetch(this.resetSiaUrl, {
+          method: 'POST',
+          headers: {
+            'X-CSRF-TOKEN': this.csrfToken,
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        }).catch(() => { });
+          }
+        },
+      };
+    }
+  </script>
+
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <style>
     [x-cloak] {
@@ -19,40 +87,40 @@
   <script>
     window.addEventListener('DOMContentLoaded', () => {
       const btn = document.getElementById('btn-toggle-sidebar');
-      const sidebar = document.getElementById('sidebar');
-      const overlay = document.getElementById('sidebar-overlay');
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
 
-      function closeSidebar() {
+    function closeSidebar() {
         if (!sidebar) return;
-        sidebar.classList.add('-translate-x-full');
-        overlay?.classList.add('hidden');
+    sidebar.classList.add('-translate-x-full');
+    overlay?.classList.add('hidden');
       }
 
-      function openSidebar() {
+    function openSidebar() {
         if (!sidebar) return;
-        sidebar.classList.remove('-translate-x-full');
-        overlay?.classList.remove('hidden');
+    sidebar.classList.remove('-translate-x-full');
+    overlay?.classList.remove('hidden');
       }
 
-      if (btn && sidebar) {
-        btn.addEventListener('click', () => {
-          const isHidden = sidebar.classList.contains('-translate-x-full');
-          if (isHidden) {
-            openSidebar();
-          } else {
-            closeSidebar();
-          }
-        });
+    if (btn && sidebar) {
+      btn.addEventListener('click', () => {
+        const isHidden = sidebar.classList.contains('-translate-x-full');
+        if (isHidden) {
+          openSidebar();
+        } else {
+          closeSidebar();
+        }
+      });
       }
 
-      overlay?.addEventListener('click', closeSidebar);
+    overlay?.addEventListener('click', closeSidebar);
 
       window.addEventListener('resize', () => {
         if (window.innerWidth >= 768) {
-          overlay?.classList.add('hidden');
-          sidebar?.classList.remove('-translate-x-full');
+      overlay?.classList.add('hidden');
+    sidebar?.classList.remove('-translate-x-full');
         } else {
-          sidebar?.classList.add('-translate-x-full');
+      sidebar?.classList.add('-translate-x-full');
         }
       });
     });
@@ -87,70 +155,6 @@
   </main>
 
   @stack('scripts')
-
-  {{-- Notifikasi Admin: didaftarkan SETELAH Alpine selesai load --}}
-  {{-- Alpine 3 + defer: gunakan document.addEventListener('alpine:init') --}}
-  <script>
-    document.addEventListener('alpine:init', () => {
-      Alpine.data('notifikasiAdmin', () => ({
-        buka: false,
-        loading: false,
-        total: 0,
-        items: [],
-        terakhirUpdate: '',
-        intervalId: null,
-        resetSiaUrl: '{{ route('admin.notifikasi.reset-sia') }}',
-        csrfToken: '{{ csrf_token() }}',
-
-        init() {
-          this.ambilNotifikasi();
-          this.intervalId = setInterval(() => this.ambilNotifikasi(), 30000);
-        },
-
-        async ambilNotifikasi() {
-          this.loading = true;
-          try {
-            const res = await fetch('{{ route('admin.notifikasi') }}', {
-              headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            });
-            if (!res.ok) return;
-            const data = await res.json();
-            this.total = data.total ?? 0;
-            this.items = data.items ?? [];
-            const now = new Date();
-            this.terakhirUpdate = now.getHours().toString().padStart(2, '0')
-              + ':' + now.getMinutes().toString().padStart(2, '0');
-          } catch (e) {
-            // abaikan error jaringan sementara
-          } finally {
-            this.loading = false;
-          }
-        },
-
-        toggle() {
-          this.buka = !this.buka;
-          if (this.buka) this.ambilNotifikasi();
-        },
-
-        tutup() {
-          this.buka = false;
-        },
-
-        klikItem(item) {
-          this.tutup();
-          if (item.id === 'sia_siswa' || item.id === 'sia_guru') {
-            fetch(this.resetSiaUrl, {
-              method: 'POST',
-              headers: {
-                'X-CSRF-TOKEN': this.csrfToken,
-                'X-Requested-With': 'XMLHttpRequest'
-              }
-            }).catch(() => { });
-          }
-        },
-      }));
-    });
-  </script>
 </body>
 
 </html>
