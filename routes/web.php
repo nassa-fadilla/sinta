@@ -195,6 +195,9 @@ Route::middleware(['auth', 'role:admin'])
 
         Route::get('survei/{survei}/export/pdf', [SurveiController::class, 'exportPdf'])
             ->name('survei.export.pdf');
+
+        Route::get('/sidebar-notifications', [DashboardController::class, 'sidebarNotifications'])
+            ->name('sidebar.notifications');
     });
 
 // ================== WEBHOOKS ==================
@@ -293,7 +296,7 @@ Route::middleware(['auth', 'role:walkel'])
         Route::get('/pengumuman/{pengumuman}/pdf', [GuruPengumumanController::class, 'pdfView'])->name('pengumuman.pdf.view');
         Route::get('/pengumuman/{pengumuman}/pdf/download', [GuruPengumumanController::class, 'pdfDownload'])->name('pengumuman.pdf.download');
         Route::get('/pengumuman/{pengumuman}', [GuruPengumumanController::class, 'show'])->name('pengumuman.show');
-        
+
         // Monitoring Walikelas
         Route::get('/monitoring', [MonitoringController::class, 'index'])->name('monitoring.index');
         Route::get('/monitoring/rombel/{rombel}/siswa/{nis}', [MonitoringController::class, 'siswaShow'])->name('monitoring.siswa.show');

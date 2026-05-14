@@ -7,6 +7,8 @@ use App\Models\Pengumuman;
 use App\Services\SiaClient;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use App\Models\ChatMessage;
+use App\Models\Survei;
 
 class DashboardController extends Controller
 {
@@ -898,5 +900,86 @@ class DashboardController extends Controller
         }
 
         return null;
+    }
+
+    public function sidebarNotifications(SiaClient $sia)
+    {
+        /*
+        |--------------------------------------------------------------------------
+        | TOTAL DATA LIVE DARI API SIA
+        |--------------------------------------------------------------------------
+        */
+
+        $siswa = count($sia->masterSiswa()['data'] ?? []);
+        $guru = count($sia->masterGuru()['data'] ?? []);
+        $mapel = count($sia->masterMapel()['data'] ?? []);
+        $rombel = count($sia->masterRombel()['data'] ?? []);
+
+        $jadwal = count($sia->masterJadwal()['data'] ?? []);
+        $ekskul = count($sia->masterEkskul()['data'] ?? []);
+
+        /*
+        |--------------------------------------------------------------------------
+        | SESSION LAST SEEN
+        |--------------------------------------------------------------------------
+        */
+
+        $lastMaster =
+            session('sidebar_master_total', 0);
+
+        $lastAkademik =
+            session('sidebar_akademik_total', 0);
+
+        $lastKegiatan =
+            session('sidebar_kegiatan_total', 0);
+
+        /*
+        |--------------------------------------------------------------------------
+        | TOTAL SEKARANG
+        |--------------------------------------------------------------------------
+        */
+
+        $masterTotal =
+            $siswa + $guru + $mapel + $rombel;
+
+        $akademikTotal =
+            $jadwal;
+
+        $kegiatanTotal =
+            $ekskul;
+
+        /*
+        |--------------------------------------------------------------------------
+        | INTERNAL SINTA
+        |--------------------------------------------------------------------------
+        */
+
+        $pengumumanBaru =
+            Pengumuman::latest('id')->value('id') >
+            session('sidebar_pengumuman_last_id', 0);
+
+        $chatBaru =
+            ChatMessage::latest('id')->value('id') >
+            session('sidebar_chat_last_id', 0);
+
+        $surveiBaru =
+            Survei::latest('id')->value('id') >
+            session('sidebar_survei_last_id', 0);
+
+        /*
+        |--------------------------------------------------------------------------
+        | RESPONSE
+        |--------------------------------------------------------------------------
+        */
+
+        return response()->json([
+            'master' => $masterTotal > $lastMaster,
+            'akademik' => $akademikTotal > $lastAkademik,
+            'kegiatan' => $kegiatanTotal > $lastKegiatan,
+
+            'pengumuman' => $pengumumanBaru,
+            'chat' => $chatBaru,
+            'survei' => $surveiBaru,
+        ]);
     }
 }
