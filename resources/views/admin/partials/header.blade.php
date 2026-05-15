@@ -43,6 +43,7 @@
       Polling tiap 30 detik ke GET /admin/notifikasi
       ═══════════════════════════════════════════════ --}}
       <div x-data="notifikasiAdmin()" x-init="init()" @click.away="tutup()" class="relative">
+
         {{-- Tombol lonceng --}}
         <button type="button" @click="toggle()"
           class="relative inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-sky-200"
@@ -52,7 +53,7 @@
             <path stroke-linecap="round" stroke-linejoin="round"
               d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
           </svg>
-          {{-- Titik merah (pulse) — muncul saat ada notif --}}
+          {{-- Titik merah pulse — muncul saat ada notif --}}
           <span x-show="total > 0" x-cloak class="absolute -top-1 -right-1 flex h-3 w-3">
             <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
             <span class="relative inline-flex h-3 w-3 rounded-full bg-red-500"></span>
@@ -66,6 +67,7 @@
           x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100"
           x-transition:leave-end="opacity-0" x-cloak
           class="absolute right-0 top-full mt-3 w-80 origin-top-right overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.14)] z-50">
+
           {{-- Header panel --}}
           <div class="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-3">
             <div>
@@ -73,7 +75,6 @@
               <p class="text-[11px] text-slate-500"
                 x-text="total > 0 ? total + ' notifikasi baru' : 'Semua sudah terpantau'"></p>
             </div>
-            {{-- Indikator loading --}}
             <div x-show="loading"
               class="h-4 w-4 animate-spin rounded-full border-2 border-blue-500 border-t-transparent"></div>
           </div>
@@ -97,57 +98,51 @@
             <template x-for="item in items" :key="item.id">
               <a :href="item.url" @click="klikItem(item)"
                 class="flex items-start gap-3 border-b border-slate-100 px-4 py-3 transition last:border-0 hover:bg-blue-50/60">
+
                 {{-- Ikon per tipe --}}
                 <div
                   class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-                  {{-- chat --}}
                   <template x-if="item.icon === 'chat'">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24"
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                       stroke="currentColor" stroke-width="1.8">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h8m-8 4h5M4 6h16v12H4z" />
                     </svg>
                   </template>
-                  {{-- megaphone / pengumuman --}}
                   <template x-if="item.icon === 'megaphone'">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24"
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                       stroke="currentColor" stroke-width="1.8">
                       <path stroke-linecap="round" stroke-linejoin="round"
                         d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
                     </svg>
                   </template>
-                  {{-- check / disetujui --}}
                   <template x-if="item.icon === 'check'">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4.5 w-4.5 text-green-600" fill="none"
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-600" fill="none"
                       viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
                   </template>
-                  {{-- x / ditolak --}}
                   <template x-if="item.icon === 'x'">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4.5 w-4.5 text-red-500" fill="none"
-                      viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24"
+                      stroke="currentColor" stroke-width="2">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </template>
-                  {{-- clipboard / survei --}}
                   <template x-if="item.icon === 'clipboard'">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24"
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                       stroke="currentColor" stroke-width="1.8">
                       <path stroke-linecap="round" stroke-linejoin="round"
                         d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                     </svg>
                   </template>
-                  {{-- users / siswa baru --}}
                   <template x-if="item.icon === 'users'">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24"
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                       stroke="currentColor" stroke-width="1.8">
                       <path stroke-linecap="round" stroke-linejoin="round"
                         d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
                     </svg>
                   </template>
-                  {{-- user-check / guru baru --}}
                   <template x-if="item.icon === 'user-check'">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24"
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                       stroke="currentColor" stroke-width="1.8">
                       <path stroke-linecap="round" stroke-linejoin="round"
                         d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h11.5M16.5 19.5l1.5 1.5 3-3" />
@@ -180,8 +175,9 @@
           </div>
         </div>
       </div>
+      {{-- end notifikasi --}}
 
-      {{-- Profile dropdown (existing) --}}
+      {{-- Profile dropdown --}}
       <div x-data="{ open: false }" class="relative">
         <button type="button" @click="open = !open" @click.away="open = false"
           class="group flex items-center gap-2 rounded-2xl px-2 py-1.5 transition hover:bg-slate-50">
@@ -256,6 +252,10 @@
             </form>
           </div>
         </div>
-      </div>{{-- end flex items-center gap-2 --}}
+      </div>
+      {{-- end profile dropdown --}}
+
     </div>
+    {{-- end kanan --}}
+  </div>
 </header>
