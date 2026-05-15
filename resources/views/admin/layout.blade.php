@@ -57,11 +57,11 @@
         },
 
         klikItem(item) {
-          // Hapus item dari list supaya tidak numpuk setelah diklik
+          // Hapus dari list dulu
           this.items = this.items.filter(i => i.id !== item.id);
           this.total = this.items.length;
           this.tutup();
-          // Kalau item SIA, reset snapshot cache juga
+          // Reset cache SIA jika perlu
           if (item.id === 'sia_siswa' || item.id === 'sia_guru') {
             fetch(this.resetSiaUrl, {
               method: 'POST',
@@ -71,8 +71,8 @@
               }
             }).catch(() => { });
           }
-          // Navigasi manual setelah Alpine selesai update state
-          if (item.url) window.location.href = item.url;
+          // Navigasi setelah Alpine selesai update DOM
+          if (item.url) setTimeout(() => { window.location.href = item.url; }, 150);
         },
       };
     }
