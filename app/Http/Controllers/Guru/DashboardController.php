@@ -52,7 +52,7 @@ class DashboardController extends Controller
         // ── 1. CHAT BARU DARI ORTU ───────────────────────────────────────────
         // Hitung pesan masuk (direction='in') di thread yang di-assign ke walkel ini.
         $chatUnread = DB::table('chat_messages as m')
-            ->join('chat_threads as t', 't.id', '=', 'm.chat_thread_id')
+            ->join('chat_threads as t', 't.id', '=', 'm.thread_id')
             ->where('t.assigned_to_user_id', $user->id)
             ->where('m.direction', 'in')
             ->where('m.sender_type', 'parent')
