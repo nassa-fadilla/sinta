@@ -71,6 +71,8 @@
               }
             }).catch(() => { });
           }
+          // Navigasi manual setelah Alpine selesai update state
+          if (item.url) window.location.href = item.url;
         },
       };
     }
