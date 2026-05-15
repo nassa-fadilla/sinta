@@ -289,6 +289,10 @@ Route::middleware(['auth', 'role:walkel'])
 
         Route::get('/dashboard', [GuruDashboardController::class, 'index'])->name('dashboard');
 
+        // Notifikasi real-time walkel (polling endpoint)
+        Route::get('/notifikasi', [GuruDashboardController::class, 'getNotifikasi'])->name('notifikasi');
+        Route::post('/notifikasi/reset-sia', [GuruDashboardController::class, 'resetNotifikasiSia'])->name('notifikasi.reset-sia');
+
         Route::get('/profil', [GuruProfilController::class, 'show'])->name('profil');
         Route::get('/profil/foto', [GuruProfilController::class, 'photo'])->name('profil.photo');
 

@@ -5,9 +5,12 @@ namespace App\Http\Controllers\Guru;
 use App\Http\Controllers\Controller;
 use App\Models\Pengumuman;
 use App\Services\SiaClient;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
@@ -16,6 +19,253 @@ class DashboardController extends Controller
     public function __construct(SiaClient $sia)
     {
         $this->sia = $sia;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | NOTIFIKASI REAL-TIME WALKEL
+    |--------------------------------------------------------------------------
+    | Endpoint polling: GET /guru/notifikasi
+    | Dipanggil tiap 30 detik dari header walkel.
+    | Semua notifikasi di-scope ke rombel binaan walkel yang sedang login.
+    */
+    public function getNotifikasi(): JsonResponse
+    {
+        $user = Auth::user();
+        $items = [];
+
+        // ── Resolve guru & rombel binaan ────────────────────────────────────
+        $guruSia = $this->resolveGuruFromApi($user);
+        $activePeriod = $this->resolveActiveAcademicPeriod();
+        $rombel = $guruSia
+            ? $this->resolveRombelWalikelas(
+                guru: $guruSia,
+                activeTahunAjaranId: $activePeriod['id'] ?? null,
+                activeTahunAjaran: $activePeriod['nama_tahun'] ?? null,
+            )
+            : null;
+
+        $rombelId = $rombel['id'] ?? null;
+        $rombelNama = $rombel['nama_rombel'] ?? 'Rombel';
+        $cacheKey = 'sinta.notif.walkel.' . $user->id . '.';
+
+        // ── 1. CHAT BARU DARI ORTU ───────────────────────────────────────────
+        // Hitung pesan masuk (direction='in') di thread yang di-assign ke walkel ini.
+        $chatUnread = DB::table('chat_messages as m')
+            ->join('chat_threads as t', 't.id', '=', 'm.chat_thread_id')
+            ->where('t.assigned_to_user_id', $user->id)
+            ->where('m.direction', 'in')
+            ->where('m.sender_type', 'parent')
+            ->whereNull('m.read_at')
+            ->count();
+
+        if ($chatUnread > 0) {
+            $items[] = [
+                'id' => 'chat',
+                'icon' => 'chat',
+                'judul' => 'Pesan Ortu',
+                'pesan' => $chatUnread . ' pesan baru belum dibaca',
+                'url' => route('guru.chat.index'),
+                'waktu' => null,
+            ];
+        }
+
+        // ── 2. PENGUMUMAN BARU (disetujui, scope rombel/tingkat walkel) ──────
+        $pengumumanBaru = Pengumuman::where('status', 'approved')
+            ->where('publish_at', '>=', now()->subDay())
+            ->orderByDesc('publish_at')
+            ->get([
+                'id',
+                'judul',
+                'target_scope',
+                'target_tingkat',
+                'target_rombel_id',
+                'target_rombel',
+                'target_kelas',
+                'publish_at'
+            ])
+            ->filter(function ($p) use ($rombel) {
+                $scope = strtolower(trim((string) ($p->target_scope ?? '')));
+                if (in_array($scope, ['', 'all', 'semua', 'umum']))
+                    return true;
+                if (in_array($scope, ['tingkat', 'level'])) {
+                    $tingkat = $this->resolveTingkatRombel($rombel);
+                    return $tingkat && $this->normalizeTingkat($p->target_tingkat) === $tingkat;
+                }
+                if (in_array($scope, ['kelas', 'rombel'])) {
+                    if ($p->target_rombel_id && $rombel && (string) $p->target_rombel_id === (string) ($rombel['id'] ?? ''))
+                        return true;
+                    $targetNama = strtoupper(trim((string) ($p->target_rombel ?? $p->target_kelas ?? '')));
+                    $myNama = strtoupper(trim((string) ($rombel['nama_rombel'] ?? '')));
+                    return $targetNama && $myNama && $targetNama === $myNama;
+                }
+                return false;
+            });
+
+        foreach ($pengumumanBaru as $p) {
+            $items[] = [
+                'id' => 'pengumuman_' . $p->id,
+                'icon' => 'megaphone',
+                'judul' => 'Pengumuman Baru',
+                'pesan' => '"' . \Illuminate\Support\Str::limit($p->judul, 50) . '"',
+                'url' => route('guru.pengumuman.show', $p->id),
+                'waktu' => $p->publish_at?->diffForHumans(),
+            ];
+        }
+
+        // ── 3‑5. DATA SIA ROMBEL: NILAI, PRESENSI, EKSKUL ───────────────────
+        // Strategi: snapshot jumlah siswa rombel + total sesi presensi + total ekskul
+        // di Cache. Kalau angka berubah = ada data baru.
+        if ($rombelId) {
+            // 3. PRESENSI BARU
+            try {
+                $presensiRes = $this->sia->masterRombelSesiPresensi($rombelId);
+                $presensiData = $presensiRes['data'] ?? [];
+                $totalPresensi = is_array($presensiData) ? count($presensiData) : 0;
+
+                $snapKey = $cacheKey . 'presensi_' . $rombelId;
+                $snap = (int) Cache::get($snapKey, $totalPresensi);
+
+                if (!Cache::has($snapKey))
+                    Cache::forever($snapKey, $totalPresensi);
+
+                $selisih = $totalPresensi - $snap;
+                if ($selisih > 0) {
+                    $items[] = [
+                        'id' => 'sia_presensi',
+                        'icon' => 'clipboard-check',
+                        'judul' => 'Presensi Baru',
+                        'pesan' => $selisih . ' sesi presensi baru tercatat di ' . $rombelNama,
+                        'url' => route('guru.monitoring.index'),
+                        'waktu' => null,
+                    ];
+                }
+            } catch (\Throwable) {
+            }
+
+            // 4. NILAI BARU — cek via anggota rombel, snapshot total record nilai
+            try {
+                $anggotaRes = $this->sia->masterRombelAnggota($rombelId);
+                $anggota = $anggotaRes['data'] ?? [];
+                $totalAnggota = is_array($anggota) ? count($anggota) : 0;
+
+                // Ambil nilai dari siswa pertama sebagai sampel untuk deteksi perubahan
+                $sampelNis = null;
+                if (is_array($anggota) && !empty($anggota)) {
+                    $first = reset($anggota);
+                    $sampelNis = data_get($first, 'nis')
+                        ?? data_get($first, 'siswa.nis')
+                        ?? data_get($first, 'nisn');
+                }
+
+                if ($sampelNis) {
+                    $nilaiRes = $this->sia->getNilaiByNis($sampelNis);
+                    $totalNilai = is_array($nilaiRes['data'] ?? null) ? count($nilaiRes['data']) : 0;
+
+                    $snapKey = $cacheKey . 'nilai_' . $rombelId;
+                    $snap = (int) Cache::get($snapKey, $totalNilai);
+                    if (!Cache::has($snapKey))
+                        Cache::forever($snapKey, $totalNilai);
+
+                    $selisih = $totalNilai - $snap;
+                    if ($selisih > 0) {
+                        $items[] = [
+                            'id' => 'sia_nilai',
+                            'icon' => 'academic-cap',
+                            'judul' => 'Nilai Baru Diinput',
+                            'pesan' => 'Ada nilai baru yang diinputkan untuk siswa ' . $rombelNama,
+                            'url' => route('guru.monitoring.index'),
+                            'waktu' => null,
+                        ];
+                    }
+                }
+            } catch (\Throwable) {
+            }
+
+            // 5. EKSKUL BARU DIIKUTI SISWA ROMBEL
+            try {
+                $ekskulRes = $this->sia->masterEkskul(['rombel_id' => $rombelId]);
+                $ekskulData = $ekskulRes['data'] ?? [];
+                $totalEkskul = is_array($ekskulData) ? count($ekskulData) : 0;
+
+                $snapKey = $cacheKey . 'ekskul_' . $rombelId;
+                $snap = (int) Cache::get($snapKey, $totalEkskul);
+                if (!Cache::has($snapKey))
+                    Cache::forever($snapKey, $totalEkskul);
+
+                $selisih = $totalEkskul - $snap;
+                if ($selisih > 0) {
+                    $items[] = [
+                        'id' => 'sia_ekskul',
+                        'icon' => 'star',
+                        'judul' => 'Ekskul Baru',
+                        'pesan' => $selisih . ' kegiatan ekskul baru diikuti siswa ' . $rombelNama,
+                        'url' => route('guru.monitoring.index'),
+                        'waktu' => null,
+                    ];
+                }
+            } catch (\Throwable) {
+            }
+        }
+
+        return response()->json([
+            'total' => count($items),
+            'items' => $items,
+        ]);
+    }
+
+    /**
+     * Reset snapshot SIA walkel setelah admin/walkel klik notif SIA.
+     */
+    public function resetNotifikasiSia(): JsonResponse
+    {
+        $user = Auth::user();
+        $cacheKey = 'sinta.notif.walkel.' . $user->id . '.';
+
+        $guruSia = $this->resolveGuruFromApi($user);
+        $activePeriod = $this->resolveActiveAcademicPeriod();
+        $rombel = $guruSia
+            ? $this->resolveRombelWalikelas(
+                guru: $guruSia,
+                activeTahunAjaranId: $activePeriod['id'] ?? null,
+                activeTahunAjaran: $activePeriod['nama_tahun'] ?? null,
+            )
+            : null;
+
+        $rombelId = $rombel['id'] ?? null;
+
+        if ($rombelId) {
+            try {
+                $presensiRes = $this->sia->masterRombelSesiPresensi($rombelId);
+                $total = is_array($presensiRes['data'] ?? null) ? count($presensiRes['data']) : 0;
+                Cache::forever($cacheKey . 'presensi_' . $rombelId, $total);
+            } catch (\Throwable) {
+            }
+
+            try {
+                $ekskulRes = $this->sia->masterEkskul(['rombel_id' => $rombelId]);
+                $total = is_array($ekskulRes['data'] ?? null) ? count($ekskulRes['data']) : 0;
+                Cache::forever($cacheKey . 'ekskul_' . $rombelId, $total);
+            } catch (\Throwable) {
+            }
+
+            try {
+                $anggotaRes = $this->sia->masterRombelAnggota($rombelId);
+                $anggota = $anggotaRes['data'] ?? [];
+                $first = is_array($anggota) && !empty($anggota) ? reset($anggota) : null;
+                $sampelNis = $first
+                    ? (data_get($first, 'nis') ?? data_get($first, 'siswa.nis') ?? data_get($first, 'nisn'))
+                    : null;
+                if ($sampelNis) {
+                    $nilaiRes = $this->sia->getNilaiByNis($sampelNis);
+                    $total = is_array($nilaiRes['data'] ?? null) ? count($nilaiRes['data']) : 0;
+                    Cache::forever($cacheKey . 'nilai_' . $rombelId, $total);
+                }
+            } catch (\Throwable) {
+            }
+        }
+
+        return response()->json(['ok' => true]);
     }
 
     public function index()
