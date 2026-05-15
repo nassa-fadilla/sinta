@@ -35,8 +35,10 @@
             });
             if (!res.ok) return;
             const data = await res.json();
-            this.total = data.total ?? 0;
-            this.items = data.items ?? [];
+            const dismissed = this.getDismissed();
+            const allItems = data.items ?? [];
+            this.items = allItems.filter(i => !dismissed.includes(i.id));
+            this.total = this.items.length;
             const now = new Date();
             this.terakhirUpdate = now.getHours().toString().padStart(2, '0')
               + ':' + now.getMinutes().toString().padStart(2, '0');
@@ -56,23 +58,35 @@
           this.buka = false;
         },
 
+        getDismissed() {
+          try { return JSON.parse(sessionStorage.getItem('sinta_notif_dismissed') || '[]'); } catch (e) { return []; }
+        },
+
+        saveDismissed(ids) {
+          try { sessionStorage.setItem('sinta_notif_dismissed', JSON.stringify(ids)); } catch (e) { }
+        },
+
         klikItem(item) {
-          // Hapus dari list dulu
+          // Simpan ID ke sessionStorage agar tidak muncul lagi setelah navigasi
+          const dismissed = this.getDismissed();
+          if (!dismissed.includes(item.id)) dismissed.push(item.id);
+          this.saveDismissed(dismissed);
+
+          // Hapus dari list sekarang juga
           this.items = this.items.filter(i => i.id !== item.id);
           this.total = this.items.length;
           this.tutup();
+
           // Reset cache SIA jika perlu
           if (item.id === 'sia_siswa' || item.id === 'sia_guru') {
             fetch(this.resetSiaUrl, {
               method: 'POST',
-              headers: {
-                'X-CSRF-TOKEN': this.csrfToken,
-                'X-Requested-With': 'XMLHttpRequest'
-              }
+              headers: { 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' }
             }).catch(() => { });
           }
-          // Navigasi setelah Alpine selesai update DOM
-          if (item.url) setTimeout(() => { window.location.href = item.url; }, 150);
+
+          // Navigasi
+          if (item.url) setTimeout(() => { window.location.href = item.url; }, 100);
         },
       };
     }
