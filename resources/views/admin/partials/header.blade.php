@@ -54,12 +54,13 @@
               d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
           </svg>
         </button>
-        {{-- Titik merah pulse — di luar button agar tidak ter-clip oleh browser --}}
-        <span x-show="total > 0" x-cloak class="pointer-events-none absolute -top-1 -right-1 flex h-3 w-3">
+        {{-- Titik merah pulse — sibling button, absolute ke div.relative wrapper --}}
+        <span x-show="total > 0"
+          style="position:absolute;top:-4px;right:-4px;width:12px;height:12px;display:flex;pointer-events:none;z-index:10;">
           <span
             style="position:absolute;display:inline-flex;height:100%;width:100%;border-radius:9999px;background-color:#f87171;opacity:0.75;animation:ping 1s cubic-bezier(0,0,0.2,1) infinite;"></span>
           <span
-            style="position:relative;display:inline-flex;height:0.75rem;width:0.75rem;border-radius:9999px;background-color:#ef4444;"></span>
+            style="position:relative;display:inline-flex;height:12px;width:12px;border-radius:9999px;background-color:#ef4444;"></span>
         </span>
 
         {{-- Dropdown panel notifikasi --}}
