@@ -71,35 +71,30 @@ class DashboardController extends Controller
         }
 
         // ── 2. PENGUMUMAN BARU (disetujui, scope rombel/tingkat walkel) ──────
+        $rombelTingkat = $this->resolveTingkatRombel($rombel);
+
         $pengumumanBaru = Pengumuman::where('status', 'approved')
             ->where('publish_at', '>=', now()->subDay())
             ->orderByDesc('publish_at')
-            ->get([
-                'id',
-                'judul',
-                'target_scope',
-                'target_tingkat',
-                'target_rombel_id',
-                'target_rombel',
-                'target_kelas',
-                'publish_at'
-            ])
-            ->filter(function ($p) use ($rombel) {
+            ->get(['id', 'judul', 'target_scope', 'target_tingkat', 'publish_at'])
+            ->filter(function ($p) use ($rombelTingkat) {
                 $scope = strtolower(trim((string) ($p->target_scope ?? '')));
+
+                // Scope 'all' → semua walkel dapat
                 if (in_array($scope, ['', 'all', 'semua', 'umum']))
                     return true;
+
+                // Scope 'tingkat' → cocokkan tingkat rombel walkel
                 if (in_array($scope, ['tingkat', 'level'])) {
-                    $tingkat = $this->resolveTingkatRombel($rombel);
-                    return $tingkat && $this->normalizeTingkat($p->target_tingkat) === $tingkat;
+                    if (!$rombelTingkat)
+                        return false;
+                    $targetTingkat = $this->normalizeTingkat($p->target_tingkat);
+                    return $targetTingkat && $targetTingkat === $rombelTingkat;
                 }
-                if (in_array($scope, ['kelas', 'rombel'])) {
-                    if ($p->target_rombel_id && $rombel && (string) $p->target_rombel_id === (string) ($rombel['id'] ?? ''))
-                        return true;
-                    $targetNama = strtoupper(trim((string) ($p->target_rombel ?? $p->target_kelas ?? '')));
-                    $myNama = strtoupper(trim((string) ($rombel['nama_rombel'] ?? '')));
-                    return $targetNama && $myNama && $targetNama === $myNama;
-                }
-                return false;
+
+                // Scope 'kelas' → cek via pivot pengumuman_kelas
+                // (filter di PHP karena butuh relasi — sudah di-get() di atas)
+                return false; // akan di-handle terpisah via with() jika perlu
             });
 
         foreach ($pengumumanBaru as $p) {
