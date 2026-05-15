@@ -78,10 +78,21 @@
     }
   </script>
 
+  {{-- Alpine Collapse plugin — HARUS sebelum Alpine core --}}
+  <script defer src="https://unpkg.com/@alpinejs/collapse@3.x.x/dist/cdn.min.js"></script>
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <style>
     [x-cloak] {
       display: none !important;
+    }
+
+    @keyframes ping {
+
+      75%,
+      100% {
+        transform: scale(2);
+        opacity: 0;
+      }
     }
   </style>
 

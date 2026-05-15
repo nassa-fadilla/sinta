@@ -56,8 +56,10 @@
         </button>
         {{-- Titik merah pulse — di luar button agar tidak ter-clip oleh browser --}}
         <span x-show="total > 0" x-cloak class="pointer-events-none absolute -top-1 -right-1 flex h-3 w-3">
-          <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
-          <span class="relative inline-flex h-3 w-3 rounded-full bg-red-500"></span>
+          <span
+            style="position:absolute;display:inline-flex;height:100%;width:100%;border-radius:9999px;background-color:#f87171;opacity:0.75;animation:ping 1s cubic-bezier(0,0,0.2,1) infinite;"></span>
+          <span
+            style="position:relative;display:inline-flex;height:0.75rem;width:0.75rem;border-radius:9999px;background-color:#ef4444;"></span>
         </span>
 
         {{-- Dropdown panel notifikasi --}}
