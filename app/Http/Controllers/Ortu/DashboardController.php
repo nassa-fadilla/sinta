@@ -5,8 +5,12 @@ namespace App\Http\Controllers\Ortu;
 use App\Http\Controllers\Controller;
 use App\Models\Pengumuman;
 use App\Services\SiaClient;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class DashboardController extends Controller
@@ -16,6 +20,309 @@ class DashboardController extends Controller
     public function __construct(SiaClient $sia)
     {
         $this->sia = $sia;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | NOTIFIKASI REAL-TIME ORTU
+    |--------------------------------------------------------------------------
+    | Endpoint polling: GET /ortu/notifikasi
+    | Semua data personal siswa di-scope ke NIS milik akun ortu yang login.
+    | Cache key per-user agar snapshot tiap ortu tidak saling campur.
+    */
+    public function getNotifikasi(): JsonResponse
+    {
+        $user = Auth::user();
+        $nis = trim((string) ($user->sia_user_id ?? ''));
+        $items = [];
+        $cacheKey = 'sinta.notif.ortu.' . $user->id . '.';
+
+        if ($nis === '') {
+            return response()->json(['total' => 0, 'items' => []]);
+        }
+
+        // ── 1. CHAT BARU DARI ADMIN / WALKEL ────────────────────────────────
+        // direction='in' = pesan masuk dari pihak sekolah ke ortu
+        // sender_type: 'admin', 'guru', 'walkel'
+        // thread scope: owner_parent_id = user ortu yang login
+        $chatUnread = DB::table('chat_messages as m')
+            ->join('chat_threads as t', 't.id', '=', 'm.thread_id')
+            ->where('t.owner_parent_id', $user->id)
+            ->where('m.direction', 'in')
+            ->whereIn('m.sender_type', ['admin', 'guru', 'walkel'])
+            ->whereNull('m.read_at')
+            ->count();
+
+        if ($chatUnread > 0) {
+            $items[] = [
+                'id' => 'chat',
+                'icon' => 'chat',
+                'judul' => 'Pesan Baru',
+                'pesan' => $chatUnread . ' pesan baru dari pihak sekolah',
+                'url' => route('ortu.chat.index'),
+                'waktu' => null,
+            ];
+        }
+
+        // ── 2. PENGUMUMAN BARU (24 jam, scope siswa) ─────────────────────────
+        try {
+            $siswaApi = $this->resolveSiswaDetailByNis($nis);
+            $tingkat = $this->resolveTingkatSiswa($siswaApi);
+            $rombelNama = $this->normalizeRombelName($this->resolveRombelAktifNama($siswaApi));
+            $rombelId = $this->resolveRombelAktifId($siswaApi);
+
+            $pengumumanBaru = Pengumuman::where('status', 'approved')
+                ->where('publish_at', '>=', now()->subDay())
+                ->orderByDesc('publish_at')
+                ->get(['id', 'judul', 'target_scope', 'target_tingkat', 'publish_at'])
+                ->filter(function ($p) use ($tingkat) {
+                    $scope = strtolower(trim((string) ($p->target_scope ?? '')));
+                    if (in_array($scope, ['', 'all', 'semua', 'umum']))
+                        return true;
+                    if (in_array($scope, ['tingkat', 'level'])) {
+                        return $tingkat && $this->normalizeTingkat($p->target_tingkat) === $tingkat;
+                    }
+                    return false; // scope kelas tidak ada kolom langsung, skip
+                });
+
+            foreach ($pengumumanBaru as $p) {
+                $items[] = [
+                    'id' => 'pengumuman_' . $p->id,
+                    'icon' => 'megaphone',
+                    'judul' => 'Pengumuman Baru',
+                    'pesan' => '"' . Str::limit($p->judul, 50) . '"',
+                    'url' => route('ortu.pengumuman.show', $p->id),
+                    'waktu' => $p->publish_at?->diffForHumans(),
+                ];
+            }
+        } catch (\Throwable) {
+        }
+
+        // ── 3. SURVEI BARU (aspirasi yang belum diisi ortu ini) ──────────────
+        try {
+            $sudahDiisi = DB::table('survei_respon')
+                ->where('user_id', $user->id)
+                ->pluck('survei_id')
+                ->toArray();
+
+            $surveiBaru = DB::table('survei')
+                ->where('is_active', 1)
+                ->whereNotIn('id', $sudahDiisi)
+                ->orderByDesc('created_at')
+                ->limit(3)
+                ->get(['id', 'judul', 'created_at']);
+
+            foreach ($surveiBaru as $s) {
+                $items[] = [
+                    'id' => 'survei_' . $s->id,
+                    'icon' => 'clipboard',
+                    'judul' => 'Survei Baru',
+                    'pesan' => '"' . Str::limit($s->judul, 50) . '" menunggu diisi',
+                    'url' => route('ortu.aspirasi.isi', $s->id),
+                    'waktu' => Carbon::parse($s->created_at)->diffForHumans(),
+                ];
+            }
+        } catch (\Throwable) {
+        }
+
+        // ── 4‑7. DATA SIA PERSONAL SISWA ─────────────────────────────────────
+        try {
+            $activePeriod = $this->resolveActiveAcademicPeriod();
+            $tahunAjaranAktif = $activePeriod['nama_tahun'] ?? null;
+            $tahunAjaranAktifId = $activePeriod['id'] ?? null;
+            $semesterAktif = $activePeriod['semester'] ?? null;
+
+            // 4. NILAI BARU
+            try {
+                $nilaiRes = $this->sia->getNilaiByNis($nis, array_filter([
+                    'tahun_ajaran_id' => $tahunAjaranAktifId,
+                    'tahun_ajaran' => $tahunAjaranAktif,
+                    'semester' => $semesterAktif,
+                ], fn($v) => $v !== null && $v !== ''));
+                $nilaiRows = count($nilaiRes['data']['nilai'] ?? $nilaiRes['data'] ?? []);
+
+                $snapKey = $cacheKey . 'nilai';
+                $snap = (int) Cache::get($snapKey, $nilaiRows);
+                if (!Cache::has($snapKey))
+                    Cache::forever($snapKey, $nilaiRows);
+
+                if ($nilaiRows - $snap > 0) {
+                    $items[] = [
+                        'id' => 'sia_nilai',
+                        'icon' => 'academic-cap',
+                        'judul' => 'Nilai Baru Masuk',
+                        'pesan' => ($nilaiRows - $snap) . ' nilai baru telah diinputkan guru',
+                        'url' => route('ortu.nilai.index'),
+                        'waktu' => null,
+                    ];
+                }
+            } catch (\Throwable) {
+            }
+
+            // 5. KEHADIRAN BARU
+            try {
+                $presensiRes = $this->sia->getPresensiByNis($nis, array_filter([
+                    'tahun_ajaran_id' => $tahunAjaranAktifId,
+                    'tahun_ajaran' => $tahunAjaranAktif,
+                    'bulan' => now()->format('Y-m'),
+                ], fn($v) => $v !== null && $v !== ''));
+                $presensiData = $presensiRes['data']['presensi']
+                    ?? $presensiRes['data']['detail']
+                    ?? $presensiRes['data']
+                    ?? [];
+                $presensiCount = is_array($presensiData) ? count($presensiData) : 0;
+
+                $snapKey = $cacheKey . 'presensi';
+                $snap = (int) Cache::get($snapKey, $presensiCount);
+                if (!Cache::has($snapKey))
+                    Cache::forever($snapKey, $presensiCount);
+
+                if ($presensiCount - $snap > 0) {
+                    $items[] = [
+                        'id' => 'sia_presensi',
+                        'icon' => 'clipboard-check',
+                        'judul' => 'Kehadiran Baru Tercatat',
+                        'pesan' => ($presensiCount - $snap) . ' catatan kehadiran baru bulan ini',
+                        'url' => route('ortu.kehadiran.index'),
+                        'waktu' => null,
+                    ];
+                }
+            } catch (\Throwable) {
+            }
+
+            // 6. EKSKUL BARU
+            try {
+                $ekskulRes = $this->sia->getEkskulByNis($nis, array_filter([
+                    'tahun_ajaran_id' => $tahunAjaranAktifId,
+                    'tahun_ajaran' => $tahunAjaranAktif,
+                ], fn($v) => $v !== null && $v !== ''));
+                $ekskulData = $ekskulRes['data']['ekskul'] ?? $ekskulRes['data'] ?? [];
+                $ekskulCount = is_array($ekskulData) ? count($ekskulData) : 0;
+
+                $snapKey = $cacheKey . 'ekskul';
+                $snap = (int) Cache::get($snapKey, $ekskulCount);
+                if (!Cache::has($snapKey))
+                    Cache::forever($snapKey, $ekskulCount);
+
+                if ($ekskulCount - $snap > 0) {
+                    $items[] = [
+                        'id' => 'sia_ekskul',
+                        'icon' => 'star',
+                        'judul' => 'Ekskul Baru',
+                        'pesan' => ($ekskulCount - $snap) . ' kegiatan ekskul baru diikuti anak Anda',
+                        'url' => route('ortu.ekskul.index'),
+                        'waktu' => null,
+                    ];
+                }
+            } catch (\Throwable) {
+            }
+
+            // 7. JADWAL SEDANG BERLANGSUNG SEKARANG
+            try {
+                if (!empty($siswaApi)) {
+                    $rombelIdJadwal = $this->resolveRombelAktifId($siswaApi);
+                    if ($rombelIdJadwal) {
+                        $jadwalRes = $this->sia->masterRombelJadwal($rombelIdJadwal, array_filter([
+                            'tahun_ajaran_id' => $tahunAjaranAktifId,
+                            'tahun_ajaran' => $tahunAjaranAktif,
+                            'semester' => $semesterAktif,
+                        ], fn($v) => $v !== null && $v !== ''));
+
+                        $now = Carbon::now('Asia/Jakarta');
+                        $hariIni = mb_strtolower($now->translatedFormat('l'));
+                        $jamNow = $now->format('H:i');
+
+                        $sedangBerlangsung = collect($jadwalRes['data'] ?? [])
+                            ->filter(function ($j) use ($hariIni, $jamNow) {
+                                $hari = mb_strtolower(trim((string) ($j['hari'] ?? '')));
+                                $mulai = substr((string) ($j['jam_mulai'] ?? ''), 0, 5);
+                                $selesai = substr((string) ($j['jam_selesai'] ?? ''), 0, 5);
+                                return $hari === $hariIni
+                                    && $mulai && $selesai
+                                    && $jamNow >= $mulai && $jamNow <= $selesai;
+                            })
+                            ->first();
+
+                        if ($sedangBerlangsung) {
+                            $mapelRaw = $sedangBerlangsung['mapel'] ?? $sedangBerlangsung['mata_pelajaran'] ?? null;
+                            $namaMapel = is_array($mapelRaw)
+                                ? ($mapelRaw['nama_mapel'] ?? $mapelRaw['nama'] ?? 'Pelajaran')
+                                : (is_string($mapelRaw) ? $mapelRaw : 'Pelajaran');
+                            $mulai = substr((string) ($sedangBerlangsung['jam_mulai'] ?? ''), 0, 5);
+                            $selesai = substr((string) ($sedangBerlangsung['jam_selesai'] ?? ''), 0, 5);
+
+                            $items[] = [
+                                'id' => 'sia_jadwal',
+                                'icon' => 'clock',
+                                'judul' => 'Pelajaran Berlangsung',
+                                'pesan' => $namaMapel . ' sedang berlangsung (' . $mulai . '–' . $selesai . ')',
+                                'url' => route('ortu.jadwal.index'),
+                                'waktu' => null,
+                            ];
+                        }
+                    }
+                }
+            } catch (\Throwable) {
+            }
+
+        } catch (\Throwable) {
+        }
+
+        return response()->json([
+            'total' => count($items),
+            'items' => $items,
+        ]);
+    }
+
+    public function resetNotifikasiSia(): JsonResponse
+    {
+        $user = Auth::user();
+        $nis = trim((string) ($user->sia_user_id ?? ''));
+        $cacheKey = 'sinta.notif.ortu.' . $user->id . '.';
+
+        if ($nis === '')
+            return response()->json(['ok' => true]);
+
+        try {
+            $activePeriod = $this->resolveActiveAcademicPeriod();
+            $tahunAjaranAktifId = $activePeriod['id'] ?? null;
+            $tahunAjaranAktif = $activePeriod['nama_tahun'] ?? null;
+            $semesterAktif = $activePeriod['semester'] ?? null;
+
+            try {
+                $res = $this->sia->getNilaiByNis($nis, array_filter([
+                    'tahun_ajaran_id' => $tahunAjaranAktifId,
+                    'tahun_ajaran' => $tahunAjaranAktif,
+                    'semester' => $semesterAktif,
+                ], fn($v) => $v !== null && $v !== ''));
+                Cache::forever($cacheKey . 'nilai', count($res['data']['nilai'] ?? $res['data'] ?? []));
+            } catch (\Throwable) {
+            }
+
+            try {
+                $res = $this->sia->getPresensiByNis($nis, array_filter([
+                    'tahun_ajaran_id' => $tahunAjaranAktifId,
+                    'tahun_ajaran' => $tahunAjaranAktif,
+                    'bulan' => now()->format('Y-m'),
+                ], fn($v) => $v !== null && $v !== ''));
+                $data = $res['data']['presensi'] ?? $res['data']['detail'] ?? $res['data'] ?? [];
+                Cache::forever($cacheKey . 'presensi', is_array($data) ? count($data) : 0);
+            } catch (\Throwable) {
+            }
+
+            try {
+                $res = $this->sia->getEkskulByNis($nis, array_filter([
+                    'tahun_ajaran_id' => $tahunAjaranAktifId,
+                    'tahun_ajaran' => $tahunAjaranAktif,
+                ], fn($v) => $v !== null && $v !== ''));
+                $data = $res['data']['ekskul'] ?? $res['data'] ?? [];
+                Cache::forever($cacheKey . 'ekskul', is_array($data) ? count($data) : 0);
+            } catch (\Throwable) {
+            }
+        } catch (\Throwable) {
+        }
+
+        return response()->json(['ok' => true]);
     }
 
     public function index()

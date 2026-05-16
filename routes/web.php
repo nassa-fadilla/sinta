@@ -337,6 +337,10 @@ Route::middleware(['auth', 'role:ortu'])
 
         Route::get('/dashboard', [OrtuDashboardController::class, 'index'])->name('dashboard');
 
+        // Notifikasi real-time ortu (polling endpoint)
+        Route::get('/notifikasi', [OrtuDashboardController::class, 'getNotifikasi'])->name('notifikasi');
+        Route::post('/notifikasi/reset-sia', [OrtuDashboardController::class, 'resetNotifikasiSia'])->name('notifikasi.reset-sia');
+
         Route::get('/profil', [OrtuProfilController::class, 'show'])->name('profil');
         Route::get('/profil/foto', [OrtuProfilController::class, 'photo'])->name('profil.photo');
 
