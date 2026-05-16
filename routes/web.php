@@ -214,6 +214,10 @@ Route::middleware(['auth', 'role:kepsek'])
 
         Route::get('/dashboard', [KepsekDashboardController::class, 'index'])->name('dashboard');
 
+        // Notifikasi real-time kepsek (polling endpoint)
+        Route::get('/notifikasi', [KepsekDashboardController::class, 'getNotifikasi'])->name('notifikasi');
+        Route::post('/notifikasi/reset-sia', [KepsekDashboardController::class, 'resetNotifikasiSia'])->name('notifikasi.reset-sia');
+
         Route::get('/profil', [KepsekProfilController::class, 'show'])->name('profil');
         Route::get('/profil/foto', [KepsekProfilController::class, 'photo'])->name('profil.photo');
 

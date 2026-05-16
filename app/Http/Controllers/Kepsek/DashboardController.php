@@ -7,8 +7,10 @@ use App\Models\Pengumuman;
 use App\Models\Survei;
 use App\Models\SurveiRespon;
 use App\Services\SiaClient;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 
 class DashboardController extends Controller
 {
@@ -17,6 +19,108 @@ class DashboardController extends Controller
     public function __construct(SiaClient $sia)
     {
         $this->sia = $sia;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | NOTIFIKASI REAL-TIME KEPSEK
+    |--------------------------------------------------------------------------
+    | Endpoint polling: GET /kepsek/notifikasi
+    | Trigger: pengumuman pending, survei respon baru, data SIA baru
+    */
+    public function getNotifikasi(): JsonResponse
+    {
+        $items = [];
+
+        // ── 1. PENGUMUMAN MENUNGGU PERSETUJUAN ───────────────────────────────
+        $pending = Pengumuman::where('status', 'draft')->count();
+        if ($pending > 0) {
+            $items[] = [
+                'id' => 'pengumuman_pending',
+                'icon' => 'megaphone',
+                'judul' => 'Pengumuman Menunggu',
+                'pesan' => $pending . ' pengumuman menunggu persetujuan Anda',
+                'url' => route('kepsek.pengumuman.index'),
+                'waktu' => null,
+            ];
+        }
+
+        // ── 2. SURVEI RESPON BARU (24 jam terakhir) ──────────────────────────
+        $responBaru = SurveiRespon::with('survei:id,judul')
+            ->where('created_at', '>=', now()->subDay())
+            ->latest()
+            ->get();
+
+        if ($responBaru->isNotEmpty()) {
+            $grouped = $responBaru->groupBy('survei_id');
+            foreach ($grouped as $surveiId => $responList) {
+                $namaSurvei = $responList->first()?->survei?->judul ?? 'Survei';
+                $jml = $responList->count();
+                $items[] = [
+                    'id' => 'survei_' . $surveiId,
+                    'icon' => 'clipboard',
+                    'judul' => 'Survei Diisi',
+                    'pesan' => $jml . ' ortu mengisi "' . \Illuminate\Support\Str::limit($namaSurvei, 40) . '"',
+                    'url' => route('kepsek.dashboard'),
+                    'waktu' => $responList->first()?->created_at?->diffForHumans(),
+                ];
+            }
+        }
+
+        // ── 3. DATA BARU DARI SIA (siswa / guru) — sama persis dengan admin ──
+        try {
+            $summaryNow = $this->sia->dashboardSummary();
+            $totalSiswaNow = (int) ($summaryNow['data']['total_siswa'] ?? $summaryNow['data']['siswa'] ?? 0);
+            $totalGuruNow = (int) ($summaryNow['data']['total_guru'] ?? $summaryNow['data']['guru'] ?? 0);
+
+            $snapSiswa = (int) Cache::get('sinta.notif.sia_total_siswa', $totalSiswaNow);
+            $snapGuru = (int) Cache::get('sinta.notif.sia_total_guru', $totalGuruNow);
+
+            if (!Cache::has('sinta.notif.sia_total_siswa'))
+                Cache::forever('sinta.notif.sia_total_siswa', $totalSiswaNow);
+            if (!Cache::has('sinta.notif.sia_total_guru'))
+                Cache::forever('sinta.notif.sia_total_guru', $totalGuruNow);
+
+            if ($totalSiswaNow - $snapSiswa > 0) {
+                $items[] = [
+                    'id' => 'sia_siswa',
+                    'icon' => 'users',
+                    'judul' => 'Data Siswa Baru',
+                    'pesan' => ($totalSiswaNow - $snapSiswa) . ' data siswa baru terdeteksi dari SIA',
+                    'url' => route('kepsek.sia-master.siswa.index'),
+                    'waktu' => null,
+                ];
+            }
+
+            if ($totalGuruNow - $snapGuru > 0) {
+                $items[] = [
+                    'id' => 'sia_guru',
+                    'icon' => 'user-check',
+                    'judul' => 'Data Guru Baru',
+                    'pesan' => ($totalGuruNow - $snapGuru) . ' data guru baru terdeteksi dari SIA',
+                    'url' => route('kepsek.sia-master.guru.index'),
+                    'waktu' => null,
+                ];
+            }
+        } catch (\Throwable) {
+        }
+
+        return response()->json([
+            'total' => count($items),
+            'items' => $items,
+        ]);
+    }
+
+    public function resetNotifikasiSia(): JsonResponse
+    {
+        try {
+            $summary = $this->sia->dashboardSummary();
+            Cache::forever('sinta.notif.sia_total_siswa', (int) ($summary['data']['total_siswa'] ?? $summary['data']['siswa'] ?? 0));
+            Cache::forever('sinta.notif.sia_total_guru', (int) ($summary['data']['total_guru'] ?? $summary['data']['guru'] ?? 0));
+        } catch (\Throwable) {
+        }
+
+        return response()->json(['ok' => true]);
     }
 
     /**
