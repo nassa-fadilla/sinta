@@ -68,6 +68,15 @@ class NilaiController extends Controller
         */
         $siswaApi = $this->resolveSiswaDetailByNis($nis, $sia);
 
+        // Ambil agama siswa untuk filter mapel pendidikan agama
+        $agamaSiswa = $this->normalizeAgama($this->pickString(
+            data_get($siswaApi, 'agama'),
+            data_get($siswaApi, 'agama_siswa'),
+            data_get($siswaApi, 'biodata.agama'),
+            data_get($siswaApi, 'detail.agama'),
+            data_get($siswaApi, 'profil.agama')
+        ));
+
         /*
         |--------------------------------------------------------------------------
         | 3. Ambil opsi tahun ajaran dari API SIA
@@ -162,14 +171,16 @@ class NilaiController extends Controller
         */
         $normalized = $this->normalizeNilaiRows(
             is_array($dataNilai) ? $dataNilai : [],
-            $sia
+            $sia,
+            $agamaSiswa
         );
 
         /*
-        |--------------------------------------------------------------------------
-        | 9. Filter tahun ajaran
-        |--------------------------------------------------------------------------
-        */
+       |--------------------------------------------------------------------------
+       | 9. Filter tahun ajaran
+       |--------------------------------------------------------------------------
+       */
+
         $nilaiFiltered = $normalized;
 
         if ($tahunAjaranAktif || $selectedTahunAjaranId) {
@@ -329,11 +340,21 @@ class NilaiController extends Controller
         $dataNilai = data_get($nilaiResp, 'data.nilai', []);
         $dataSiswa = $this->mergeSiswaData($siswaApi, is_array($dataSiswaNilai) ? $dataSiswaNilai : []);
 
+        // Ambil agama siswa untuk filter mapel pendidikan agama
+        $agamaSiswa = $this->normalizeAgama($this->pickString(
+            data_get($siswaApi, 'agama'),
+            data_get($siswaApi, 'agama_siswa'),
+            data_get($siswaApi, 'biodata.agama'),
+            data_get($siswaApi, 'detail.agama'),
+            data_get($siswaApi, 'profil.agama')
+        ));
+
         [$rombelId, $rombelName, $waliKelasName] = $this->resolveRombelAktifInfo($dataSiswa, $sia);
 
         $normalized = $this->normalizeNilaiRows(
             is_array($dataNilai) ? $dataNilai : [],
-            $sia
+            $sia,
+            $agamaSiswa
         );
 
         $nilaiFiltered = $normalized;
@@ -634,12 +655,12 @@ class NilaiController extends Controller
         return false;
     }
 
-    private function normalizeNilaiRows(array $rows, SiaClient $sia): Collection
+    private function normalizeNilaiRows(array $rows, SiaClient $sia, ?string $agamaSiswa = null): Collection
     {
         $mapelKkmByName = [];
 
         return collect($rows)
-            ->map(function ($row) use ($sia, &$mapelKkmByName) {
+            ->map(function ($row) use ($sia, &$mapelKkmByName, $agamaSiswa) {
                 if ($row instanceof \Illuminate\Contracts\Support\Arrayable) {
                     $row = $row->toArray();
                 }
@@ -660,6 +681,17 @@ class NilaiController extends Controller
                 }
 
                 $mapelName = trim((string) $mapelName);
+
+                // ── Filter mapel pendidikan agama sesuai agama siswa ──────────
+                // Logika identik dengan JadwalController: deteksi apakah mapel
+                // adalah mapel agama tertentu, lalu cocokkan dengan agama siswa.
+                $mapelAgama = $this->getAgamaFromMapel($mapelName);
+                if ($mapelAgama !== null) {
+                    // Mapel ini adalah mapel agama — hanya tampilkan jika cocok
+                    if (!$agamaSiswa || $mapelAgama !== $agamaSiswa) {
+                        return null; // skip: bukan agama siswa ini
+                    }
+                }
                 $mapelNameKey = strtolower($mapelName);
 
                 $kkm = data_get($row, 'mapel.kkm')
@@ -942,6 +974,44 @@ class NilaiController extends Controller
             'ganjil', 'gasal', '1' => 1,
             'genap', '2' => 2,
             default => 99,
+        };
+    }
+
+    private function normalizeAgama(?string $agama): ?string
+    {
+        $agama = strtolower(trim((string) $agama));
+
+        if ($agama === '') {
+            return null;
+        }
+
+        return match (true) {
+            in_array($agama, ['islam'], true) => 'islam',
+            in_array($agama, ['kristen', 'kristen protestan', 'protestan'], true) => 'kristen',
+            in_array($agama, ['katolik', 'katholik'], true) => 'katolik',
+            in_array($agama, ['hindu'], true) => 'hindu',
+            in_array($agama, ['buddha', 'budha'], true) => 'buddha',
+            in_array($agama, ['khonghucu', 'konghucu'], true) => 'khonghucu',
+            default => $agama,
+        };
+    }
+
+    private function getAgamaFromMapel(?string $mapelName): ?string
+    {
+        $mapel = strtolower(trim((string) $mapelName));
+
+        if ($mapel === '') {
+            return null;
+        }
+
+        return match (true) {
+            Str::contains($mapel, 'pendidikan agama islam') || $mapel === 'pai' => 'islam',
+            Str::contains($mapel, 'pendidikan agama kristen') || $mapel === 'pak' => 'kristen',
+            Str::contains($mapel, 'pendidikan agama katolik') => 'katolik',
+            Str::contains($mapel, 'pendidikan agama hindu') => 'hindu',
+            Str::contains($mapel, 'pendidikan agama buddha') || Str::contains($mapel, 'pendidikan agama budha') => 'buddha',
+            Str::contains($mapel, 'pendidikan agama khonghucu') || Str::contains($mapel, 'pendidikan agama konghucu') => 'khonghucu',
+            default => null,
         };
     }
 
