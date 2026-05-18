@@ -130,29 +130,13 @@ class JadwalController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | 4. Ambil data siswa dari endpoint nilai sebagai penguat rombel
+        | 4. Ambil info rombel aktif siswa langsung dari data siswa
         |--------------------------------------------------------------------------
-        | Data nilai tidak digunakan sebagai isi jadwal. Bagian ini hanya digunakan
-        | untuk memperkuat data rombel aktif, tahun ajaran, dan wali kelas.
+        | Data rombel sudah tersedia dari getSiswaByNis() + masterSiswaDetail().
+        | Tidak perlu memanggil getNilaiByNis() hanya untuk mendapat rombel.
         */
-        $nilaiResp = [];
+        $dataSiswa = is_array($siswaApi) ? $siswaApi : [];
 
-        if ($nis !== '') {
-            $nilaiResp = $this->fetchNilaiByNis($sia, $nis, [
-                'tahun_ajaran_id' => $activeTahunAjaranId,
-                'tahun_ajaran' => $infoTahunAjaran,
-                'semester' => $infoSemester,
-            ]);
-        }
-
-        $dataSiswaNilai = data_get($nilaiResp, 'data.siswa', []);
-        $dataSiswa = $this->mergeSiswaData($siswaApi, is_array($dataSiswaNilai) ? $dataSiswaNilai : []);
-
-        /*
-        |--------------------------------------------------------------------------
-        | 5. Ambil info rombel aktif siswa
-        |--------------------------------------------------------------------------
-        */
         if (!empty($dataSiswa)) {
             [$rombelId, $rombelNama, $waliKelasNama] = $this->resolveRombelAktifInfo($dataSiswa, $sia);
         }
@@ -295,13 +279,6 @@ class JadwalController extends Controller
         }
     }
 
-    private function mergeSiswaData(?array $siswaApi, array $dataSiswaNilai): array
-    {
-        $siswaApi = is_array($siswaApi) ? $siswaApi : [];
-
-        return array_replace_recursive($dataSiswaNilai, $siswaApi);
-    }
-
     private function resolveRombelAktifInfo(array $dataSiswa, SiaClient $sia): array
     {
         $rombelId = data_get($dataSiswa, 'rombel_aktif.id')
@@ -379,23 +356,6 @@ class JadwalController extends Controller
             $this->pickString($rombelName),
             $this->pickString($waliKelasName),
         ];
-    }
-
-    private function fetchNilaiByNis(SiaClient $sia, string $nis, array $filters = []): array
-    {
-        $filters = array_filter($filters, fn($value) => $value !== null && $value !== '');
-
-        try {
-            return $sia->getNilaiByNis($nis, $filters);
-        } catch (\Throwable $e) {
-            report($e);
-
-            return [
-                'success' => false,
-                'status' => false,
-                'data' => [],
-            ];
-        }
     }
 
     private function resolveActiveAcademicPeriod(SiaClient $sia): array

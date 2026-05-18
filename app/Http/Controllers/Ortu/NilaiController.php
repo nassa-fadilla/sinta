@@ -174,13 +174,10 @@ class NilaiController extends Controller
             $sia,
             $agamaSiswa
         );
-
-        /*
-       |--------------------------------------------------------------------------
-       | 9. Filter tahun ajaran
-       |--------------------------------------------------------------------------
-       */
-
+        |--------------------------------------------------------------------------
+        | 9. Filter tahun ajaran
+        |--------------------------------------------------------------------------
+        */
         $nilaiFiltered = $normalized;
 
         if ($tahunAjaranAktif || $selectedTahunAjaranId) {
@@ -657,10 +654,8 @@ class NilaiController extends Controller
 
     private function normalizeNilaiRows(array $rows, SiaClient $sia, ?string $agamaSiswa = null): Collection
     {
-        $mapelKkmByName = [];
-
         return collect($rows)
-            ->map(function ($row) use ($sia, &$mapelKkmByName, $agamaSiswa) {
+            ->map(function ($row) use ($agamaSiswa) {
                 if ($row instanceof \Illuminate\Contracts\Support\Arrayable) {
                     $row = $row->toArray();
                 }
@@ -698,46 +693,8 @@ class NilaiController extends Controller
                     ?? data_get($row, 'mata_pelajaran.kkm')
                     ?? data_get($row, 'kkm');
 
-                if ($kkm === null && $mapelName !== '' && $mapelName !== '-') {
-                    if (!array_key_exists($mapelNameKey, $mapelKkmByName)) {
-                        try {
-                            $listResp = $sia->masterMapel(['q' => $mapelName]);
-                            $items = data_get($listResp, 'data', []);
-                            $found = null;
-
-                            foreach ($items as $m) {
-                                $nama = strtolower(trim((string) ($m['nama_mapel'] ?? '')));
-
-                                if ($nama === $mapelNameKey) {
-                                    $found = $m;
-                                    break;
-                                }
-                            }
-
-                            if (!$found) {
-                                foreach ($items as $m) {
-                                    $nama = strtolower(trim((string) ($m['nama_mapel'] ?? '')));
-
-                                    if ($nama !== '' && (str_contains($nama, $mapelNameKey) || str_contains($mapelNameKey, $nama))) {
-                                        $found = $m;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if (!$found && !empty($items)) {
-                                $found = $items[0];
-                            }
-
-                            $mapelKkmByName[$mapelNameKey] = $found['kkm'] ?? null;
-                        } catch (\Throwable $e) {
-                            report($e);
-                            $mapelKkmByName[$mapelNameKey] = null;
-                        }
-                    }
-
-                    $kkm = $mapelKkmByName[$mapelNameKey];
-                }
+                // Tidak fetch masterMapel() per baris — terlalu berat (N HTTP calls).
+                // KKM yang tidak dikirim API dibiarkan null; is_tuntas dihitung dari status saja.
 
                 $semester = data_get($row, 'semester')
                     ?? data_get($row, 'semester_label')
