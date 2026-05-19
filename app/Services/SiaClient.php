@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 class SiaClient
@@ -228,12 +227,7 @@ class SiaClient
 
     public function dashboardSummary(): array
     {
-        return Cache::remember(
-            'sia.dashboard_summary',
-            300,
-            fn() =>
-            $this->safeGet('/api/sinta/dashboard/summary')
-        );
+        return $this->safeGet('/api/sinta/dashboard/summary');
     }
 
     public function dashboardPresensiToday(): array
@@ -444,12 +438,7 @@ class SiaClient
 
     public function masterTahunAjaranAktif(): array
     {
-        return Cache::remember(
-            'sia.tahun_ajaran_aktif',
-            300,
-            fn() =>
-            $this->safeGet('/api/sinta/master/tahun-ajaran-aktif')
-        );
+        return $this->safeGet('/api/sinta/master/tahun-ajaran-aktif');
     }
 
     /*
