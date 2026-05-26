@@ -82,8 +82,14 @@
               class="w-full rounded-2xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-sm shadow-sm transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100">
               <option value="">-- Pilih --</option>
               @foreach($tahunAjarans as $t)
-                <option value="{{ $t->id }}" @selected(old('tahun_ajaran_id') == $t->id)>
-                  {{ $t->nama_tahun }} (Semester {{ $t->semester }})
+                @php
+                  $isAktif = strtolower((string) ($t->status ?? '')) === 'aktif';
+                  $isSelected = old('tahun_ajaran_id')
+                    ? old('tahun_ajaran_id') == $t->id
+                    : $isAktif;
+                @endphp
+                <option value="{{ $t->id }}" @selected($isSelected)>
+                  {{ $t->nama_tahun }} (Semester {{ $t->semester }}){{ $isAktif ? ' — Aktif' : '' }}
                 </option>
               @endforeach
             </select>
@@ -104,7 +110,7 @@
                 Mulai Tayang
               </label>
               <input type="datetime-local" name="publish_at"
-                value="{{ old('publish_at') ? \Carbon\Carbon::parse(old('publish_at'))->format('Y-m-d\TH:i') : '' }}"
+                value="{{ old('publish_at') ? \Carbon\Carbon::parse(old('publish_at'))->format('Y-m-d\TH:i') : \Carbon\Carbon::now('Asia/Jakarta')->format('Y-m-d\TH:i') }}"
                 required
                 class="w-full rounded-2xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-sm shadow-sm transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100">
               @error('publish_at')
