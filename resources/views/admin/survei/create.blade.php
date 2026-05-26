@@ -240,6 +240,12 @@
         const addButton = document.getElementById('addQuestion');
         const builderError = document.getElementById('builderError');
 
+        // Default mulai_at ke waktu sekarang
+        const now = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        const localNow = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+        document.getElementById('mulai_at').value = localNow;
+
         addButton.addEventListener('click', () => {
             const node = newQuestion();
             questionList.appendChild(node);
@@ -298,11 +304,11 @@
             const div = document.createElement('div');
             div.className = 'flex items-center gap-2';
             div.innerHTML = `
-                                    <input type="text" value="${value.replace(/"/g, '&quot;')}"
-                                        class="q-option flex-1 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-blue-500 focus:ring focus:ring-blue-100"
-                                        placeholder="Tulis opsi..." required>
-                                    <button type="button" class="remove-option text-xs text-red-500 hover:text-red-700">✕</button>
-                                `;
+                                        <input type="text" value="${value.replace(/"/g, '&quot;')}"
+                                            class="q-option flex-1 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-blue-500 focus:ring focus:ring-blue-100"
+                                            placeholder="Tulis opsi..." required>
+                                        <button type="button" class="remove-option text-xs text-red-500 hover:text-red-700">✕</button>
+                                    `;
             opsiList.appendChild(div);
             div.querySelector('.remove-option').addEventListener('click', () => div.remove());
         }
