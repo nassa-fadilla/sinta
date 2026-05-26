@@ -76,7 +76,7 @@
 
           <div>
             <label class="mb-1 block text-sm font-medium text-slate-700">
-              Tahun Ajaran <span class="text-xs text-slate-400">(opsional)</span>
+              Tahun Ajaran
             </label>
             <select name="tahun_ajaran_id"
               class="w-full rounded-2xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-sm shadow-sm transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100">
@@ -120,7 +120,7 @@
 
             <div>
               <label class="mb-1 block text-sm font-medium text-slate-700">
-                Akhir Tayang <span class="text-xs text-slate-400">(opsional)</span>
+                Akhir Tayang
               </label>
               <input type="datetime-local" name="expire_at"
                 value="{{ old('expire_at') ? \Carbon\Carbon::parse(old('expire_at'))->format('Y-m-d\TH:i') : '' }}"
