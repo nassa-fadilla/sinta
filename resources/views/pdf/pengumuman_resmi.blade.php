@@ -297,11 +297,6 @@
     {{-- META --}}
     <table class="meta">
         <tr>
-            <td class="label">Nomor</td>
-            <td class="sep">:</td>
-            <td>-</td>
-        </tr>
-        <tr>
             <td class="label">Perihal</td>
             <td class="sep">:</td>
             <td>{{ $item->judul ?? '-' }}</td>
@@ -329,7 +324,8 @@
     <div class="isi">
         <p>Dengan hormat,</p>
 
-        <div class="paragraf">{!! nl2br(e($isiPengumuman)) !!}</div>
+        <div class="paragraf">{!! nl2br(e(preg_replace('/\n{2,}/', "\n", $isiPengumuman))) !!}
+        </div>
 
         <p>
             Demikian pengumuman ini disampaikan untuk menjadi perhatian dan dilaksanakan sebagaimana mestinya.
